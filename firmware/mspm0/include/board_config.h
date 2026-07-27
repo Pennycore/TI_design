@@ -1,0 +1,42 @@
+#ifndef BOARD_CONFIG_H
+#define BOARD_CONFIG_H
+
+#include <stdint.h>
+
+#define ROBOT_GRAY_SENSOR_COUNT 8U
+
+/* GW gray sensor addresses depend on AD1/AD0 jumpers. */
+#define ROBOT_GRAY_I2C_ADDR_PREFERRED 0x4FU
+#define ROBOT_GRAY_I2C_ADDR_MIN 0x4CU
+#define ROBOT_GRAY_I2C_ADDR_MAX 0x4FU
+
+#define ROBOT_CONTROL_PERIOD_MS 5U
+#define ROBOT_TELEMETRY_PERIOD_MS 50U
+#define ROBOT_UART_BAUD 115200U
+
+#define ROBOT_IMAGE_WIDTH 320
+#define ROBOT_IMAGE_HEIGHT 240
+
+/* PWM values are per mille: -1000..1000. */
+#define ROBOT_BASE_PWM 320
+#define ROBOT_ALIGN_PWM 220
+#define ROBOT_MAX_PWM 800
+#define ROBOT_MIN_PWM 0
+
+/* PID gains are scaled by 1000: turn = gain * error / 1000. */
+#define ROBOT_LINE_KP 85
+#define ROBOT_LINE_KI 0
+#define ROBOT_LINE_KD 180
+#define ROBOT_LINE_INTEGRAL_LIMIT 5000
+
+#define ROBOT_LINE_MIN_SUM 80U
+#define ROBOT_LINE_SIGNAL_THRESHOLD 30U
+#define ROBOT_BLACK_LINE 1
+
+#define ROBOT_BALL_MIN_CONFIDENCE 55U
+#define ROBOT_BALL_STABLE_CONFIDENCE 65U
+#define ROBOT_BALL_STOP_RADIUS 42U
+#define ROBOT_BALL_LOST_TIMEOUT_MS 250U
+#define ROBOT_VISUAL_KP 3
+
+#endif
