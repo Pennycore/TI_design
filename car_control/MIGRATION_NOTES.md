@@ -11,14 +11,18 @@
 - 感为八路灰度 CLK/DAT 读取
 - 灰度加权位置计算和循迹 PID
 
-## 唯一的软件引脚修改
+## 软件引脚修改
 
 | 信号 | 原引脚 | TI LaunchPad 工程 |
 | --- | --- | --- |
 | TB6612 STBY | PA10 | PB3 |
+| TB6612 AIN2 | PB5 | PB0（BoosterPack 9 号位） |
 
 PA10 在 LaunchPad 上默认可通过 J21 接到 XDS110 的 UART 通道。改到 PB3 后，
 无需拔掉 J21，也不会让 STBY 输出干扰板载调试串口。
+
+PB5 只在 LaunchPad 底部 MCU 引脚扩展排针上。AIN2 改到 PB0 后，可以直接
+使用常用的 40Pin BoosterPack 排针 9 号位接线。
 
 ## 不需要修改的代码
 

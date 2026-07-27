@@ -29,7 +29,7 @@ GPIO1.associatedPins.create(4);
 GPIO1.associatedPins[0].$name       = "AIN1";
 GPIO1.associatedPins[0].assignedPin = "4";
 GPIO1.associatedPins[1].$name       = "AIN2";
-GPIO1.associatedPins[1].assignedPin = "5";
+GPIO1.associatedPins[1].assignedPin = "0";
 GPIO1.associatedPins[2].$name       = "BIN1";
 GPIO1.associatedPins[2].assignedPin = "12";
 GPIO1.associatedPins[3].$name       = "BIN2";
@@ -114,7 +114,7 @@ TIMER1.interrupts  = ["ZERO"];
  * re-solve from scratch.
  */
 GPIO1.associatedPins[0].pin.$suggestSolution = "PB4";
-GPIO1.associatedPins[1].pin.$suggestSolution = "PB5";
+GPIO1.associatedPins[1].pin.$suggestSolution = "PB0";
 GPIO1.associatedPins[2].pin.$suggestSolution = "PB12";
 GPIO1.associatedPins[3].pin.$suggestSolution = "PB13";
 Board.peripheral.$suggestSolution            = "DEBUGSS";

@@ -20,7 +20,7 @@
 | 功能 | MSPM0G3507 引脚 | 方向 |
 | --- | --- | --- |
 | 左电机 AIN1 | PB4 | 输出 |
-| 左电机 AIN2 | PB5 | 输出 |
+| 左电机 AIN2 | PB0（BoosterPack 9 号位） | 输出 |
 | 右电机 BIN1 | PB12 | 输出 |
 | 右电机 BIN2 | PB13 | 输出 |
 | 电机 STBY | PB3 | 输出 |
@@ -35,6 +35,9 @@
 
 以上为 MCU 引脚名，不是 LaunchPad 排针编号。所有信号都可以从板上的
 BoosterPack 排针或 J23～J28 MCU 引脚扩展排针引出。
+
+原工程的 AIN2 使用 PB5，但 PB5 只在底部 MCU 扩展排针上，不方便接线。
+TI LaunchPad 版本改用 40Pin BoosterPack 排针上的 PB0（9 号位）。
 
 右电机 PWM 使用 `PA9`。若从 BoosterPack 排针引出 PA9，需要将 J14
 从默认的 PB23 位置切换到 PA9；若直接使用 MCU 引脚扩展排针，则无需修改 J14。
