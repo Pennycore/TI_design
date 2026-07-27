@@ -78,7 +78,7 @@ GPIO4.associatedPins[0].assignedPin      = "15";
 GPIO4.associatedPins[1].$name            = "DAT";
 GPIO4.associatedPins[1].direction        = "INPUT";
 GPIO4.associatedPins[1].internalResistor = "PULL_UP";
-GPIO4.associatedPins[1].assignedPin      = "14";
+GPIO4.associatedPins[1].assignedPin      = "2";
 
 PWM1.$name                              = "PWM_MOTOR";
 PWM1.timerStartTimer                    = true;
@@ -126,6 +126,6 @@ GPIO3.associatedPins[1].pin.$suggestSolution = "PB6";
 GPIO3.associatedPins[2].pin.$suggestSolution = "PB9";
 GPIO3.associatedPins[3].pin.$suggestSolution = "PB8";
 GPIO4.associatedPins[0].pin.$suggestSolution = "PB15";
-GPIO4.associatedPins[1].pin.$suggestSolution = "PB14";
+GPIO4.associatedPins[1].pin.$suggestSolution = "PB2";
 PWM1.peripheral.$suggestSolution             = "TIMA0";
 TIMER1.peripheral.$suggestSolution           = "TIMA1";

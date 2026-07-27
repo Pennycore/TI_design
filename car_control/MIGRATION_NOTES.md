@@ -17,12 +17,14 @@
 | --- | --- | --- |
 | TB6612 STBY | PA10 | PB3 |
 | TB6612 AIN2 | PB5 | PB0（BoosterPack 9 号位） |
+| 灰度传感器 DAT | PB14 | PB2（BoosterPack 常用排针） |
 
 PA10 在 LaunchPad 上默认可通过 J21 接到 XDS110 的 UART 通道。改到 PB3 后，
 无需拔掉 J21，也不会让 STBY 输出干扰板载调试串口。
 
 PB5 只在 LaunchPad 底部 MCU 引脚扩展排针上。AIN2 改到 PB0 后，可以直接
-使用常用的 40Pin BoosterPack 排针 9 号位接线。
+使用常用的 40Pin BoosterPack 排针 9 号位接线。PB14 位于单独的 QEI/扩展
+接口，灰度 DAT 改到照片左侧排针上可直接找到的 PB2。
 
 ## 不需要修改的代码
 
@@ -40,7 +42,7 @@ PB5 只在 LaunchPad 底部 MCU 引脚扩展排针上。AIN2 改到 PB0 后，�
 ## 上板前必须确认
 
 - 感为灰度传感器安装 PULL 开漏跳线帽，并在安装后重新上电。
-- PB14/DAT 使用 3.3V 上拉，禁止直接输入 5V。
+- PB2/DAT 使用 3.3V 上拉，禁止直接输入 5V。
 - PA9 从 BoosterPack 排针使用时，将 J14 选择到 PA9。
 - 电机 VM 使用独立电源，不从 LaunchPad 5V 排针供电。
 - LaunchPad、灰度传感器、TB6612 和电机电源必须共地。

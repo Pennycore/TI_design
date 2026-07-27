@@ -31,7 +31,7 @@
 | 右编码器 A 相 | PB9 | 输入，上拉，双边沿中断 |
 | 右编码器 B 相 | PB8 | 输入，上拉，双边沿中断 |
 | 灰度传感器 CLK | PB15 | 推挽输出 |
-| 灰度传感器 DAT | PB14 | 上拉输入 |
+| 灰度传感器 DAT | PB2（BoosterPack 常用排针） | 上拉输入 |
 
 以上为 MCU 引脚名，不是 LaunchPad 排针编号。所有信号都可以从板上的
 BoosterPack 排针或 J23～J28 MCU 引脚扩展排针引出。
@@ -49,13 +49,16 @@ TI LaunchPad 版本改用 40Pin BoosterPack 排针上的 PB0（9 号位）。
 | 灰度传感器 | MSPM0G3507 |
 | --- | --- |
 | CLK | PB15 |
-| DAT | PB14 |
+| DAT | PB2 |
 | GND | GND（必须共地） |
 | +5V | 稳定 5V 电源 |
 
-MSPM0G3507 使用 3.3V IO，PB14 是普通 IO，不能直接承受 5V DAT。
+MSPM0G3507 使用 3.3V IO，PB2 是普通 IO，不能直接承受 5V DAT。
 传感器连接前应安装 `PULL` 开漏模式跳线帽，
 然后重新给传感器上电；DAT 由主控内部上拉至 3.3V。CLK 保持推挽输出。
+
+TI LaunchPad 的 PB14 位于单独的 QEI/扩展接口，不方便从常用排针接线，
+因此本工程将灰度 DAT 改用左侧 BoosterPack 排针上可直接找到的 PB2。
 
 灰度传感器可以使用 LaunchPad J10 的 5V 供电，但电机 VM 必须使用独立的
 电机电源。LaunchPad、灰度传感器、TB6612 和电机电源负极必须共地。
