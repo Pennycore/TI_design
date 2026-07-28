@@ -31,6 +31,16 @@ vision/models/
 vision/exports/
 vision/calib_images/
 vision/nncase_dump/
+vision/.ultralytics/
+vision/hard_cases/images/
+vision/hard_cases/labels/
+vision/hard_cases/previews/
+vision/hard_cases/manifest.csv
+vision/hard_cases/review/
+vision/hard_cases/review_manifest.csv
+vision/hard_cases/clean_round2/
+vision/hard_cases/finetune/
+vision/hard_cases/*.log
 .tools/
 
 # Root-level YOLO outputs when commands are run from the wrong cwd
