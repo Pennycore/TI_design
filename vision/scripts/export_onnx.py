@@ -13,6 +13,10 @@ def main():
     parser.add_argument("--weights", default="vision/models/steel_ball_yolo11n.pt")
     parser.add_argument("--imgsz", type=int, default=416)
     parser.add_argument("--opset", type=int, default=12)
+    parser.add_argument(
+        "--output",
+        help="Output ONNX path. Defaults to vision/exports/<weights-stem>.onnx.",
+    )
     args = parser.parse_args()
 
     weights = Path(args.weights)
@@ -30,7 +34,8 @@ def main():
 
     export_dir = Path("vision/exports")
     export_dir.mkdir(parents=True, exist_ok=True)
-    target = export_dir / "steel_ball_yolo11n.onnx"
+    target = Path(args.output) if args.output else export_dir / f"{weights.stem}.onnx"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(Path(exported).read_bytes())
     print(f"Saved {target}")
 

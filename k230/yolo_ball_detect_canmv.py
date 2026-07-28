@@ -11,7 +11,7 @@ from machine import FPIOA, UART
 from libs.AI2D import Ai2d
 from libs.AIBase import AIBase
 from libs.PipeLine import PipeLine
-from libs.Utils import ALIGN_UP, ScopedTiming, get_colors, letterbox_pad_param
+from libs.Utils import ScopedTiming, get_colors, letterbox_pad_param
 
 
 # The camera frame is letterboxed to 416x416 by AI2D before inference.
@@ -20,16 +20,22 @@ MODEL_INPUT_SIZE = [416, 416]
 DISPLAY_MODE = "virt"  # Use "hdmi" when an HDMI monitor is connected.
 DISPLAY_SIZE = [800, 480]
 
-MODEL_PATH = "/sdcard/examples/kmodel/steel_ball_yolo11n.kmodel"
+MODEL_PATH = "/sdcard/examples/kmodel/steel_ball_yolo11n_hardcase_ft.kmodel"
 LABELS = ["steel_ball"]
-CONF_THRESHOLD = 0.35
-NMS_THRESHOLD = 0.45
+CONF_THRESHOLD = 0.22
+NMS_THRESHOLD = 0.55
 MAX_BOXES_NUM = 30
 
 MAX_MULTI_BALLS = 4
 CLOSE_BOX_HEIGHT = 120
-STABLE_FRAMES = 3
-TRACK_GATE_PIXELS = 40
+BALL_MIN_ASPECT_PERCENT = 55
+STABLE_FRAMES = 4
+TRACK_CONFIRM_FRAMES = 3
+TRACK_CONFIRM_CONFIDENCE = 0.30
+TRACK_MAX_MISSES = 2
+TRACK_MATCH_PIXELS = 70
+TRACK_SMOOTH_ALPHA = 0.45
+MAX_TRACKS = 8
 
 UART_BAUD = 115200
 UART_ID = 2
@@ -59,8 +65,8 @@ class SteelBallDetectionApp(AIBase):
     ):
         super().__init__(kmodel_path, model_input_size, rgb888p_size, debug_mode)
         self.model_input_size = model_input_size
-        self.rgb888p_size = [ALIGN_UP(rgb888p_size[0], 16), rgb888p_size[1]]
-        self.display_size = [ALIGN_UP(display_size[0], 16), display_size[1]]
+        self.rgb888p_size = [((rgb888p_size[0] + 15) // 16) * 16, rgb888p_size[1]]
+        self.display_size = [((display_size[0] + 15) // 16) * 16, display_size[1]]
         self.confidence_threshold = confidence_threshold
         self.nms_threshold = nms_threshold
         self.max_boxes_num = max_boxes_num
@@ -128,6 +134,10 @@ class SteelBallDetectionApp(AIBase):
             height = max(0, height)
             if width <= 1 or height <= 1:
                 continue
+            short_side = min(width, height)
+            long_side = max(width, height)
+            if short_side * 100 < long_side * BALL_MIN_ASPECT_PERCENT:
+                continue
 
             balls.append(
                 {
@@ -151,6 +161,9 @@ class SteelBallDetectionApp(AIBase):
         for ball in balls:
             color = self.colors[0]
             thickness = 3
+            if not ball["observed"]:
+                color = (255, 128, 128, 128)
+                thickness = 2
             if ball is selected_ball:
                 color = (255, 0, 255, 0) if stable else (255, 255, 165, 0)
                 thickness = 5
@@ -163,7 +176,7 @@ class SteelBallDetectionApp(AIBase):
                 color=color,
                 thickness=thickness,
             )
-            label = "steel_ball %.2f" % ball["confidence"]
+            label = "T%d %.2f" % (ball["track_id"], ball["confidence"])
             pipeline.osd_img.draw_string_advanced(
                 ball["x1"],
                 max(0, ball["y1"] - 32),
@@ -171,6 +184,107 @@ class SteelBallDetectionApp(AIBase):
                 label,
                 color=color,
             )
+
+
+class MultiBallTracker:
+    def __init__(self):
+        self.tracks = []
+        self.next_track_id = 1
+
+    def _create_track(self, detection):
+        track = detection.copy()
+        track["track_id"] = self.next_track_id
+        track["hits"] = 1
+        track["streak"] = 1
+        track["missed"] = 0
+        track["observed"] = True
+        track["confirmed"] = False
+        self.next_track_id += 1
+        if self.next_track_id > 255:
+            self.next_track_id = 1
+        return track
+
+    def _update_track(self, track, detection):
+        alpha = TRACK_SMOOTH_ALPHA
+        for field in ("x1", "y1", "width", "height"):
+            track[field] = int(
+                track[field] * (1.0 - alpha) + detection[field] * alpha + 0.5
+            )
+        track["x2"] = track["x1"] + track["width"]
+        track["y2"] = track["y1"] + track["height"]
+        track["cx"] = track["x1"] + track["width"] // 2
+        track["cy"] = track["y1"] + track["height"] // 2
+        track["confidence"] = (
+            track["confidence"] * (1.0 - alpha)
+            + detection["confidence"] * alpha
+        )
+        track["hits"] += 1
+        track["streak"] += 1
+        track["missed"] = 0
+        track["observed"] = True
+        if (
+            track["streak"] >= TRACK_CONFIRM_FRAMES
+            and track["confidence"] >= TRACK_CONFIRM_CONFIDENCE
+        ):
+            track["confirmed"] = True
+
+    def update(self, detections):
+        detections = detections[:MAX_TRACKS]
+        pairs = []
+        for track_index in range(len(self.tracks)):
+            track = self.tracks[track_index]
+            for detection_index in range(len(detections)):
+                detection = detections[detection_index]
+                dx = track["cx"] - detection["cx"]
+                dy = track["cy"] - detection["cy"]
+                gate = max(
+                    TRACK_MATCH_PIXELS,
+                    (track["width"] + track["height"]
+                     + detection["width"] + detection["height"]) // 4,
+                )
+                distance_squared = dx * dx + dy * dy
+                if distance_squared <= gate * gate:
+                    pairs.append((distance_squared, track_index, detection_index))
+
+        pairs.sort(key=lambda pair: pair[0])
+        matched_tracks = [False] * len(self.tracks)
+        matched_detections = [False] * len(detections)
+
+        for _, track_index, detection_index in pairs:
+            if matched_tracks[track_index] or matched_detections[detection_index]:
+                continue
+            self._update_track(
+                self.tracks[track_index],
+                detections[detection_index],
+            )
+            matched_tracks[track_index] = True
+            matched_detections[detection_index] = True
+
+        retained_tracks = []
+        for track_index in range(len(self.tracks)):
+            track = self.tracks[track_index]
+            if not matched_tracks[track_index]:
+                track["missed"] += 1
+                track["streak"] = 0
+                track["observed"] = False
+                track["confidence"] *= 0.85
+            if track["missed"] <= TRACK_MAX_MISSES:
+                retained_tracks.append(track)
+        self.tracks = retained_tracks
+
+        for detection_index in range(len(detections)):
+            if matched_detections[detection_index]:
+                continue
+            if len(self.tracks) >= MAX_TRACKS:
+                break
+            self.tracks.append(self._create_track(detections[detection_index]))
+
+        confirmed = []
+        for track in self.tracks:
+            if track["confirmed"]:
+                confirmed.append(track)
+        confirmed.sort(key=lambda track: track["confidence"], reverse=True)
+        return confirmed
 
 
 def crc8(data):
@@ -242,7 +356,18 @@ def setup_uart():
     )
 
 
-def choose_best_detection(balls, center_x, image_width, image_height):
+def choose_best_detection(
+    balls,
+    center_x,
+    image_width,
+    image_height,
+    preferred_track_id=None,
+):
+    if preferred_track_id is not None:
+        for ball in balls:
+            if ball["track_id"] == preferred_track_id:
+                return ball
+
     best = None
     best_score = -1.0
     for ball in balls:
@@ -256,6 +381,7 @@ def choose_best_detection(balls, center_x, image_width, image_height):
             + lower_bonus * 0.08
             + area_bonus * 0.15
             - center_penalty * 0.04
+            - ball["missed"] * 0.08
         )
         if score > best_score:
             best_score = score
@@ -268,8 +394,8 @@ def main():
     detector = None
     uart = None
     seq = 0
-    last_ball = None
-    stable_count = 0
+    tracker = MultiBallTracker()
+    primary_track_id = None
 
     try:
         uart = setup_uart()
@@ -305,27 +431,26 @@ def main():
         while True:
             frame = pipeline.get_frame()
             detections = detector.run(frame)
-            balls = detector.to_ball_list(detections)
+            raw_balls = detector.to_ball_list(detections)
+            balls = tracker.update(raw_balls)
             ball = choose_best_detection(
                 balls,
                 center_x,
                 display_size[0],
                 display_size[1],
+                primary_track_id,
             )
 
             if ball is None:
-                stable_count = 0
-            elif last_ball is not None:
-                dx = ball["cx"] - last_ball["cx"]
-                dy = ball["cy"] - last_ball["cy"]
-                if dx * dx + dy * dy <= TRACK_GATE_PIXELS * TRACK_GATE_PIXELS:
-                    stable_count += 1
-                else:
-                    stable_count = 1
+                primary_track_id = None
             else:
-                stable_count = 1
+                primary_track_id = ball["track_id"]
 
-            stable = stable_count >= STABLE_FRAMES
+            stable = (
+                ball is not None
+                and ball["observed"]
+                and ball["streak"] >= STABLE_FRAMES
+            )
             uart.write(pack_frame(MSG_VISION_BALL, seq, ball_payload(ball, stable, center_x)))
             seq = (seq + 1) & 0xFF
             uart.write(pack_frame(MSG_VISION_MULTI_BALL, seq, multi_ball_payload(balls)))
@@ -333,7 +458,6 @@ def main():
 
             detector.draw_result(pipeline, balls, ball, stable)
             pipeline.show_image()
-            last_ball = ball
             gc.collect()
     except KeyboardInterrupt:
         print("Stopped by user")
