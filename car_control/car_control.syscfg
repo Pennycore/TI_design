@@ -19,6 +19,8 @@ const PWM1   = PWM.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
 const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1 = TIMER.addInstance();
+const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
+const UART1  = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -108,6 +110,17 @@ TIMER1.timerMode   = "PERIODIC";
 TIMER1.timerPeriod = "10 ms";
 TIMER1.interrupts  = ["ZERO"];
 
+UART1.$name                    = "UART_K230";
+UART1.targetBaudRate           = 115200;
+UART1.enableFIFO               = true;
+UART1.rxFifoThreshold          = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
+UART1.txFifoThreshold          = "DL_UART_TX_FIFO_LEVEL_3_4_EMPTY";
+UART1.peripheral.$assign       = "UART2";
+UART1.peripheral.rxPin.$assign = "PB18";
+UART1.peripheral.txPin.$assign = "PB17";
+UART1.rxPinConfig.enableConfig = true;
+UART1.rxPinConfig.internalResistor = "PULL_UP";
+
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
@@ -129,3 +142,6 @@ GPIO4.associatedPins[0].pin.$suggestSolution = "PB15";
 GPIO4.associatedPins[1].pin.$suggestSolution = "PB2";
 PWM1.peripheral.$suggestSolution             = "TIMA0";
 TIMER1.peripheral.$suggestSolution           = "TIMA1";
+UART1.peripheral.$suggestSolution            = "UART2";
+UART1.peripheral.rxPin.$suggestSolution      = "PB18";
+UART1.peripheral.txPin.$suggestSolution      = "PB17";

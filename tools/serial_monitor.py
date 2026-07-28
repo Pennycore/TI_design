@@ -7,6 +7,7 @@ import sys
 SERIAL_SOF0 = 0xA5
 SERIAL_SOF1 = 0x5A
 MSG_VISION_BALL = 0x10
+MSG_VISION_MULTI_BALL = 0x11
 MSG_MCU_TELEMETRY = 0x20
 
 
@@ -89,6 +90,20 @@ def describe_frame(frame):
             f"VISION seq={seq:03d} x={x:4d} y={y:4d} r={radius:3d} "
             f"dx={offset_x:4d} conf={confidence:3d} flags=0x{flags:02X}"
         )
+
+    if msg_id == MSG_VISION_MULTI_BALL and len(payload) >= 1:
+        count = payload[0]
+        balls = []
+        offset = 1
+        for index in range(min(count, 4)):
+            if offset + 7 > len(payload):
+                break
+            x, y, radius, confidence = struct.unpack("<hhHB", payload[offset:offset + 7])
+            balls.append(
+                f"b{index}=({x},{y},r={radius},c={confidence})"
+            )
+            offset += 7
+        return f"MULTI  seq={seq:03d} count={count} " + " ".join(balls)
 
     if msg_id == MSG_MCU_TELEMETRY and len(payload) == 12:
         time_ms, line_pos, left_pwm, right_pwm, state, gray_bits = struct.unpack("<IhhhBB", payload)

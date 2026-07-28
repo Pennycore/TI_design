@@ -1,6 +1,7 @@
 #include "ti_msp_dl_config.h"
 #include "encoder.h"
 #include "gray_sensor.h"
+#include "k230_uart.h"
 #include "line_control.h"
 #include "motor.h"
 #include "speed_control.h"
@@ -25,6 +26,7 @@ int main(void)
     Motor_Init();
     Encoder_Init();
     GraySensor_Init();
+    K230Uart_Init();
     SpeedControl_Init();
     LineControl_Init();
 
@@ -36,7 +38,9 @@ int main(void)
 
     while (1)
     {
+        K230Uart_Poll();
         LineControl_Update();
+        K230Uart_Poll();
         delay_cycles(LINE_CONTROL_MAIN_DELAY_CYCLES);
     }
 }
