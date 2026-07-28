@@ -30,6 +30,8 @@ vision/runs/
 vision/models/
 vision/exports/
 vision/calib_images/
+vision/nncase_dump/
+.tools/
 
 # Root-level YOLO outputs when commands are run from the wrong cwd
 runs/

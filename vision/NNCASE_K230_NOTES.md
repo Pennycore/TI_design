@@ -42,7 +42,7 @@ calib images must match real camera scenes
 转换完成后，把模型放到 K230：
 
 ```text
-/sdcard/models/steel_ball_yolo11n.kmodel
+/sdcard/examples/kmodel/steel_ball_yolo11n.kmodel
 ```
 
 再运行：
@@ -51,4 +51,22 @@ calib images must match real camera scenes
 k230/yolo_ball_detect_canmv.py
 ```
 
-注意：`k230/yolo_ball_detect_canmv.py` 里已经写好了串口打包和多球结果处理，但 `load_detector()` 还需要按你们实际 CanMV 固件里的 kmodel 推理 API 填上适配代码。
+`k230/yolo_ball_detect_canmv.py` 已按 SD 卡中的 `PipeLine + AIBase + aidemo` 示例完成适配，包含 YOLO 后处理、主目标选择、多球结果和 UART2 数据发送。模型输入必须保持 `416x416`，与 ONNX/KModel 转换尺寸一致。
+
+## 本机转换命令
+
+当前项目使用 `k230` Conda 环境中的 `nncase 2.11.0` 和 `nncase-kpu 2.11.0`。项目内的 `.tools/dotnet` 提供 nncase 所需的 .NET 7 Runtime。
+
+在项目根目录执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File vision\scripts\convert_k230_kmodel.ps1 --samples 100
+```
+
+输出文件：
+
+```text
+vision/exports/steel_ball_yolo11n.kmodel
+```
+
+转换脚本默认从 `vision/dataset/images/train` 均匀选取 100 张图片，使用 `uint8/uint8 + KLD` 做 PTQ，并采用与板端一致的 `416x416` RGB 输入。
