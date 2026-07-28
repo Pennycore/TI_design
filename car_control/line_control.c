@@ -4,6 +4,10 @@
 #include "pid.h"
 #include "speed_control.h"
 
+#if (LINE_CONTROL_SWAP_MOTOR_CHANNELS > 1U)
+#error "LINE_CONTROL_SWAP_MOTOR_CHANNELS must be 0 or 1"
+#endif
+
 /*
  * 八个探头从左到右的位置权重。
  * 除以 3500 后，最终位置范围约为 -1.0～+1.0。
@@ -95,6 +99,21 @@ static void LineControl_GetCornerTargets(
     }
 }
 
+static void LineControl_ApplyWheelTargets(
+    float physical_left_target,
+    float physical_right_target)
+{
+#if LINE_CONTROL_SWAP_MOTOR_CHANNELS
+    SpeedControl_SetTarget(
+        physical_right_target,
+        physical_left_target);
+#else
+    SpeedControl_SetTarget(
+        physical_left_target,
+        physical_right_target);
+#endif
+}
+
 void LineControl_Init(void)
 {
     PID_Init(
@@ -168,7 +187,7 @@ void LineControl_Update(void)
             g_status.left_target  = left_target;
             g_status.right_target = right_target;
 
-            SpeedControl_SetTarget(left_target, right_target);
+            LineControl_ApplyWheelTargets(left_target, right_target);
         }
         else
         {
@@ -215,7 +234,7 @@ void LineControl_Update(void)
         g_status.left_target   = left_target;
         g_status.right_target  = right_target;
 
-        SpeedControl_SetTarget(left_target, right_target);
+        LineControl_ApplyWheelTargets(left_target, right_target);
         return;
     }
 
@@ -245,7 +264,7 @@ void LineControl_Update(void)
     g_status.left_target   = left_target;
     g_status.right_target  = right_target;
 
-    SpeedControl_SetTarget(left_target, right_target);
+    LineControl_ApplyWheelTargets(left_target, right_target);
 }
 
 void LineControl_Stop(void)

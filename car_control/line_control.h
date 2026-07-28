@@ -23,14 +23,14 @@
  * Low-speed right-angle corner handling.
  * When the line reaches an outer probe, pivot around the inner wheel.
  * If the line disappears, keep searching in the last known direction for
- * at most 0.8 seconds, then stop.
+ * at most 1.5 seconds, then stop.
  */
 #define LINE_CONTROL_CORNER_POSITION_THRESHOLD (0.65f)
-#define LINE_CONTROL_DIRECTION_THRESHOLD       (0.15f)
+#define LINE_CONTROL_DIRECTION_THRESHOLD       (0.05f)
 #define LINE_CONTROL_WIDE_LINE_COUNT            (7U)
-#define LINE_CONTROL_CORNER_OUTER_SPEED         (3.0f)
-#define LINE_CONTROL_CORNER_INNER_SPEED         (0.0f)
-#define LINE_CONTROL_SEARCH_MAX_CYCLES          (80U)
+#define LINE_CONTROL_CORNER_OUTER_SPEED         (5.0f)
+#define LINE_CONTROL_CORNER_INNER_SPEED         (-2.0f)
+#define LINE_CONTROL_SEARCH_MAX_CYCLES          (150U)
 
 /*
  * 循迹 PID 初始值。
@@ -51,6 +51,13 @@
  * 若以后改为循白线，将其改为 0。
  */
 #define LINE_CONTROL_TRACK_BLACK_LINE     (1U)
+
+/*
+ * The current driver wiring maps channel A to the physical right wheel and
+ * channel B to the physical left wheel. Swap only the requested wheel targets
+ * so each motor/encoder speed loop remains paired with its existing channel.
+ */
+#define LINE_CONTROL_SWAP_MOTOR_CHANNELS   (1U)
 
 typedef struct
 {
