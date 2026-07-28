@@ -25,6 +25,8 @@ uint8_t GraySensor_Read(void)
 
     for (i = 0U; i < 8U; i++) {
         /* 高电平写数据、低电平读数据。 */
+        DL_GPIO_setPins(GPIO_GRAY_PORT, GPIO_GRAY_CLK_PIN);
+        delay_cycles(GRAY_SENSOR_CLK_HIGH_CYCLES);
         DL_GPIO_clearPins(GPIO_GRAY_PORT, GPIO_GRAY_CLK_PIN);
 
         if (DL_GPIO_readPins(GPIO_GRAY_PORT, GPIO_GRAY_DAT_PIN) != 0U) {
@@ -35,7 +37,7 @@ uint8_t GraySensor_Read(void)
          * 上升沿使传感器准备下一位；高电平必须保持至少 5 us。
          * 单帧内相邻时钟的间隔必须远小于 1 ms。
          */
-        DL_GPIO_setPins(GPIO_GRAY_PORT, GPIO_GRAY_CLK_PIN);
+        DL_GPIO_clearPins(GPIO_GRAY_PORT, GPIO_GRAY_CLK_PIN);
         delay_cycles(GRAY_SENSOR_CLK_HIGH_CYCLES);
     }
 

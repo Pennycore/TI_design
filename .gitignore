@@ -6,3 +6,30 @@ build/
 *.hex
 __pycache__/
 *.pyc
+
+# Python and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE/local settings
+.theia/
+.vscode/
+
+# Ultralytics local settings and downloaded base weights
+Ultralytics/
+yolo11n.pt
+yolo*.pt
+
+# Vision datasets and generated training artifacts
+vision/dataset/images/
+vision/dataset/labels/
+vision/dataset/*.cache
+vision/dataset/missing_labels.txt
+vision/runs/
+vision/models/
+vision/exports/
+vision/calib_images/
+
+# Root-level YOLO outputs when commands are run from the wrong cwd
+runs/

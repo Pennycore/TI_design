@@ -3,11 +3,14 @@
 /*
  * This is the hardware binding template for LP-MSPM0G3507.
  *
+ * Current board work should start from ../../car_control instead. That project
+ * already has a concrete SysConfig pinout. Keep this file only as a reference
+ * if the HAL-style firmware is revived later.
+ *
  * Replace each function with your TI DriverLib/SysConfig calls:
- * - I2C master: GW gray sensor, 100 kHz or 400 kHz.
- * - UART: K230, 115200 8N1.
- * - PWM: TB6612FNG PWMA/PWMB.
- * - GPIO: AIN1/AIN2/BIN1/BIN2/STBY.
+ * - Gray sensor input.
+ * - K230 UART, 115200 8N1.
+ * - TB6612FNG PWM and direction GPIO.
  */
 
 void hal_init(void)

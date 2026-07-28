@@ -1,6 +1,8 @@
 # K230 CanMV Vision
 
-`ball_detect_canmv.py` 用于在庐山派 Lite K230D / CanMV 上运行小钢球识别，并通过 UART2 发送给 MSPM0。
+`ball_detect_canmv.py` 用于在庐山派 Lite K230D / CanMV 上运行传统圆检测小钢球识别，并通过 UART2 发送给 MSPM0。
+
+`yolo_ball_detect_canmv.py` 是深度学习版本模板。训练和导出工程见 `../vision/`。
 
 默认引脚按你提供的 40Pin 图：
 
