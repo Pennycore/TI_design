@@ -1,6 +1,8 @@
-# MSPM0 Firmware
+# MSPM0 Firmware Reference
 
-这一层代码按“应用逻辑 + HAL 适配”组织：
+这一层是早期生成的 HAL 参考骨架，不是当前上板主工程。现在优先使用 `../../car_control/`，因为它已经有 TI CCS/SysConfig、TB6612、电机编码器、速度闭环和灰度 CLK/DAT 读取。
+
+本目录按“应用逻辑 + HAL 适配”组织：
 
 - `include/hal.h`：需要你在 TI 工程中实现的硬件接口。
 - `src/gw_gray.c`：感为 8 路灰度传感器 I2C 驱动。
@@ -10,14 +12,10 @@
 - `src/robot_app.c`：整车状态机。
 - `port/ti_mspm0_port.c`：TI DriverLib/SysConfig 绑定模板。
 
-## 移植步骤
+## 如果以后继续使用这个骨架
 
 1. 在 CCS 或 Keil 中创建 LP-MSPM0G3507 工程。
-2. 用 SysConfig 配置：
-   - 1 路 I2C master，用于灰度传感器。
-   - 1 路 UART，用于 K230，115200 8N1。
-   - 2 路 PWM，用于 TB6612FNG 的 PWMA/PWMB。
-   - 5 个 GPIO 输出，用于 AIN1/AIN2/BIN1/BIN2/STBY。
+2. 根据当时的实际接线重新配置 SysConfig，不要直接照旧注释接线。
 3. 把 `src/*.c` 和 `include/*.h` 加入工程。
 4. 参考 `port/ti_mspm0_port.c` 实现 `hal.h` 中的函数。
 5. 把 `src/main.c` 作为应用入口，或将 `robot_app_init/tick/poll_uart` 接入你已有主循环。

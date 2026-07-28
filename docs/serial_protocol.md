@@ -18,7 +18,7 @@ CRC8 覆盖 `msg_id, seq, len, payload`，多项式 `0x07`，初值 `0x00`。
 
 ## 消息 `0x10`：VISION_BALL
 
-K230 到 MSPM0，payload 长度 10 字节，小端序：
+K230 到 MSPM0。表示当前主目标，payload 长度 10 字节，小端序：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -36,6 +36,27 @@ MSPM0 当前策略：
 - 稳定检测到：进入视觉对准，按 `offset_x` 差速。
 - `close` 置位：停车，等待后续机构动作。
 
+## 消息 `0x11`：VISION_MULTI_BALL
+
+K230 到 MSPM0。表示一帧中最多 4 个钢球的检测列表。这个帧是给后续多球策略预留的，初期 MSPM0 可以先不处理。
+
+payload：
+
+```text
+count, ball0, ball1, ...
+```
+
+其中 `count` 为 `uint8`，最大为 4。每个 ball 长度 7 字节，小端序：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| x | int16 | 球心 x |
+| y | int16 | 球心 y |
+| radius | uint16 | 半径 |
+| confidence | uint8 | 0 到 100 |
+
+最大 payload 长度为 `1 + 4 * 7 = 29` 字节，小于 MCU 侧 32 字节负载限制。
+
 ## 消息 `0x20`：MCU_TELEMETRY
 
 MSPM0 到 K230 或电脑调试，payload 长度 12 字节，小端序：
@@ -51,6 +72,6 @@ MSPM0 到 K230 或电脑调试，payload 长度 12 字节，小端序：
 
 ## 调试建议
 
-- 先只连 GND、TX、RX，用 `tools/serial_monitor.py` 看 K230 是否稳定发 `0x10` 帧。
+- 先只连 GND、TX、RX，用 `tools/serial_monitor.py` 看 K230 是否稳定发 `0x10` 或 `0x11` 帧。
 - 再接电机前，先让 MSPM0 只打印 `line_pos`，用手移动灰度传感器确认左右方向正确。
-- 最后接 TB6612FNG，先把 `ROBOT_BASE_PWM` 调到 200 以下低速试车。
+- 最后接 TB6612FNG，先把基础 PWM 调到低速再试车。

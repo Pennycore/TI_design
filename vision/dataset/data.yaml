@@ -1,0 +1,5 @@
+﻿path: C:\Users\28457\Desktop\TI_design\vision\dataset
+train: images/train
+val: images/val
+names:
+  0: steel_ball

@@ -9,12 +9,14 @@
 
 ## K230 到 MSPM0 UART
 
-根据你给的庐山派 Lite K230D 40Pin 图，推荐用 UART2：
+注意：当前 `car_control` 工程还没有合入 K230 UART。PB15/PB14 已经用于灰度传感器 CLK/DAT，不能再分给 K230。
+
+下一步建议在 `car_control.syscfg` 中新增 UART2，并使用 PB17/PB18：
 
 | K230 40Pin | K230 GPIO | 复用功能 | 连接到 MSPM0 |
 |---|---:|---|---|
-| Pin 11 | GPIO05 | UART2_TXD | K230_UART_RX |
-| Pin 13 | GPIO06 | UART2_RXD | K230_UART_TX |
+| Pin 11 | GPIO05 | UART2_TXD | MSPM0 PB18 / UART2_RX |
+| Pin 13 | GPIO06 | UART2_RXD | MSPM0 PB17 / UART2_TX |
 | 任意 GND | GND | GND | GND |
 
 注意：
@@ -24,46 +26,35 @@
 - K230 建议独立供电或用开发板自己的 USB/5V 输入，MSPM0 不负责给 K230 供电。
 - 如果你改用 UART1/UART3/UART4，只需要同步修改 `k230/ball_detect_canmv.py` 和 MSPM0 的 SysConfig。
 
-## 灰度传感器到 MSPM0 I2C
+## 灰度传感器到 MSPM0
 
 | 灰度传感器 | 连接到 MSPM0 | 备注 |
 |---|---|---|
 | +5V | 稳定 5V | 官方推荐 5V |
 | GND | GND | 必须共地 |
-| SCL | GRAY_I2C_SCL | 建议上拉到 3.3V |
-| SDA | GRAY_I2C_SDA | 建议上拉到 3.3V |
+| CLK | PB15 | 推挽输出 |
+| DAT | PB14 | 输入，上拉到 3.3V |
 | KEY | 可不接或外接按键到 GND | 用于传感器校准 |
 | ERR | 可选 GPIO 输入 | 调试错误状态 |
 
-地址说明：
-
-- 传感器软件地址高 5 位默认 `10011`。
-- AD1/AD0 未插跳线帽时，7 位地址通常是 `0x4C`。
-- AD1/AD0 都插上时，7 位地址是 `0x4F`，手册示例也常用 `0x4F`。
-- MSPM0 代码会优先试配置值，再扫描 `0x4C` 到 `0x4F`。
-
-I2C 上拉注意：
-
-- 灰度传感器 I2C 的板载上拉跳线是 5V/10k，应先确认 MSPM0 引脚是否 5V 容忍。
-- 更稳妥做法：不插 5V 上拉跳线，外接 2.2k 到 4.7k 上拉到 3.3V。
-- 手册写明 I2C 时无需进入开漏模式；开漏跳线主要用于并口或传感器自定义串行 DAT。
+当前 `car_control` 使用手册第 6 章的 CLK/DAT 串行通讯。传感器接线前要插上 `PULL` 开漏模式跳线帽，然后重新给传感器上电；DAT 由 MSPM0 内部上拉到 3.3V。
 
 ## TB6612FNG 到 MSPM0
 
 | TB6612FNG | 连接到 MSPM0 | 用途 |
 |---|---|---|
-| PWMA | MOTOR_LEFT_PWM | 左电机 PWM |
-| AIN1 | MOTOR_LEFT_IN1 | 左电机方向 |
-| AIN2 | MOTOR_LEFT_IN2 | 左电机方向 |
-| PWMB | MOTOR_RIGHT_PWM | 右电机 PWM |
-| BIN1 | MOTOR_RIGHT_IN1 | 右电机方向 |
-| BIN2 | MOTOR_RIGHT_IN2 | 右电机方向 |
-| STBY | MOTOR_STBY | 高电平使能 |
+| PWMA | PA8 | 左电机 PWM |
+| AIN1 | PB4 | 左电机方向 |
+| AIN2 | PB0 | 左电机方向 |
+| PWMB | PA9 | 右电机 PWM |
+| BIN1 | PB12 | 右电机方向 |
+| BIN2 | PB13 | 右电机方向 |
+| STBY | PB3 | 高电平使能 |
 | VCC | 3.3V | 逻辑电源 |
 | VM | 电机电源 | 按电机额定电压 |
 | GND | GND | 必须共地 |
 
-MSPM0 具体引脚请在 TI SysConfig 中绑定到上面的逻辑名。`firmware/mspm0/include/hal.h` 已经把这些逻辑名抽象出来。
+MSPM0 详细引脚计划见 `docs/mspm0_pin_plan.md`。当前上板主工程是 `car_control/`。
 
 ## 灰度传感器现场校准
 

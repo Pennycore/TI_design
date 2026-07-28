@@ -9,18 +9,20 @@
 
 ## 目录
 
-- `firmware/mspm0/`：MSPM0 应用代码和可移植 HAL 接口。
+- `car_control/`：当前主用的 LP-MSPM0G3507 CCS/SysConfig 小车控制工程。
+- `firmware/mspm0/`：早期生成的 MSPM0 HAL 骨架，保留作后续 I2C/视觉融合参考。
 - `k230/`：CanMV/K230 小钢球识别脚本。
+- `vision/`：YOLO11n 小钢球检测训练、数据集和导出工程。
 - `docs/`：算法选择、串口协议、接线记录。
 - `tools/`：电脑端串口调试工具。
 
 ## 当前算法选择
 
-第一版选择“灰度模拟量质心循迹 + K230 传统视觉圆/亮斑检测”。原因是现场调参快，不需要先采集训练集。若背景复杂、钢球反光严重或目标尺度变化大，再升级为 K230 上的 YOLO/kmodel 检测。
+当前上板先使用 `car_control/` 的“灰度数字量循迹 + 编码器速度闭环”。K230 小钢球识别脚本已经在 `k230/`，但还未合入 `car_control` 的 UART 外设配置。
 
 ## 代码落地方式
 
-`firmware/mspm0/include/hal.h` 定义了 MSPM0 需要实现的硬件接口。你把工程导入 TI CCS/SysConfig 后，需要在 `firmware/mspm0/port/ti_mspm0_port.c` 里把 I2C、UART、PWM、GPIO 绑定到实际引脚。
+优先把 `car_control/car_control.syscfg` 作为 CCS/SysConfig 工程打开并编译。后续再把 K230 UART 和 `docs/serial_protocol.md` 中的视觉协议接入 `car_control`。
 
 推荐先看：
 
