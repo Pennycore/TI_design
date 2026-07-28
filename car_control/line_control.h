@@ -15,9 +15,9 @@
  *
  * 首次实车测试使用较低速度，确认方向正确后再逐步提高。
  */
-#define LINE_CONTROL_DEFAULT_BASE_SPEED   (6.0f)
-#define LINE_CONTROL_MAX_WHEEL_SPEED      (12.0f)
-#define LINE_CONTROL_MAX_CORRECTION       (5.0f)
+#define LINE_CONTROL_DEFAULT_BASE_SPEED   (3.0f)
+#define LINE_CONTROL_MAX_WHEEL_SPEED      (6.0f)
+#define LINE_CONTROL_MAX_CORRECTION       (3.0f)
 
 /*
  * 循迹 PID 初始值。

@@ -12,6 +12,9 @@
 #define LINE_CONTROL_MAIN_DELAY_CYCLES \
     ((CPUCLK_FREQ / 1000U) * 9U)
 
+#define LINE_CONTROL_STARTUP_DELAY_CYCLES \
+    (CPUCLK_FREQ * 3U)
+
 int main(void)
 {
     SYSCFG_DL_init();
@@ -24,6 +27,12 @@ int main(void)
     GraySensor_Init();
     SpeedControl_Init();
     LineControl_Init();
+
+    /*
+     * Wait three seconds after reset before enabling line tracking so the
+     * operator can put the car down and move a hand away safely.
+     */
+    delay_cycles(LINE_CONTROL_STARTUP_DELAY_CYCLES);
 
     while (1)
     {
