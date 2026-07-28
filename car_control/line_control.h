@@ -20,6 +20,19 @@
 #define LINE_CONTROL_MAX_CORRECTION       (3.0f)
 
 /*
+ * Low-speed right-angle corner handling.
+ * When the line reaches an outer probe, pivot around the inner wheel.
+ * If the line disappears, keep searching in the last known direction for
+ * at most 0.8 seconds, then stop.
+ */
+#define LINE_CONTROL_CORNER_POSITION_THRESHOLD (0.65f)
+#define LINE_CONTROL_DIRECTION_THRESHOLD       (0.15f)
+#define LINE_CONTROL_WIDE_LINE_COUNT            (7U)
+#define LINE_CONTROL_CORNER_OUTER_SPEED         (3.0f)
+#define LINE_CONTROL_CORNER_INNER_SPEED         (0.0f)
+#define LINE_CONTROL_SEARCH_MAX_CYCLES          (80U)
+
+/*
  * 循迹 PID 初始值。
  * 先调整 KP，再加入少量 KD；一般暂时不需要 KI。
  */

@@ -16,6 +16,7 @@ static const int16_t g_lineWeights[8] = {
 static PID_t g_linePID;
 static float g_baseSpeed;
 static LineControl_Status_t g_status;
+static int8_t g_lastLineDirection;
 
 static float LineControl_Limit(
     float value,
@@ -77,6 +78,23 @@ static float LineControl_GetPosition(
         3500.0f;
 }
 
+static void LineControl_GetCornerTargets(
+    int8_t direction,
+    float *left_target,
+    float *right_target)
+{
+    if (direction > 0)
+    {
+        *left_target  = LINE_CONTROL_CORNER_OUTER_SPEED;
+        *right_target = LINE_CONTROL_CORNER_INNER_SPEED;
+    }
+    else
+    {
+        *left_target  = LINE_CONTROL_CORNER_INNER_SPEED;
+        *right_target = LINE_CONTROL_CORNER_OUTER_SPEED;
+    }
+}
+
 void LineControl_Init(void)
 {
     PID_Init(
@@ -89,6 +107,7 @@ void LineControl_Init(void)
         LINE_CONTROL_MAX_CORRECTION);
 
     g_baseSpeed            = LINE_CONTROL_DEFAULT_BASE_SPEED;
+    g_lastLineDirection    = 0;
     g_status.raw_sensor    = 0xFFU;
     g_status.line_bits     = 0U;
     g_status.active_count  = 0U;
@@ -132,11 +151,71 @@ void LineControl_Update(void)
         g_status.lost_count++;
         g_status.position     = 0.0f;
         g_status.correction   = 0.0f;
-        g_status.left_target  = 0.0f;
-        g_status.right_target = 0.0f;
 
         PID_Reset(&g_linePID);
-        SpeedControl_Stop();
+
+        if ((g_lastLineDirection != 0) &&
+            (g_status.lost_count <= LINE_CONTROL_SEARCH_MAX_CYCLES))
+        {
+            LineControl_GetCornerTargets(
+                g_lastLineDirection,
+                &left_target,
+                &right_target);
+
+            g_status.correction =
+                (float)g_lastLineDirection *
+                LINE_CONTROL_MAX_CORRECTION;
+            g_status.left_target  = left_target;
+            g_status.right_target = right_target;
+
+            SpeedControl_SetTarget(left_target, right_target);
+        }
+        else
+        {
+            g_status.left_target  = 0.0f;
+            g_status.right_target = 0.0f;
+            SpeedControl_Stop();
+        }
+
+        return;
+    }
+
+    g_status.lost_count = 0U;
+
+    if (position > LINE_CONTROL_DIRECTION_THRESHOLD)
+    {
+        g_lastLineDirection = 1;
+    }
+    else if (position < -LINE_CONTROL_DIRECTION_THRESHOLD)
+    {
+        g_lastLineDirection = -1;
+    }
+
+    /*
+     * At a right-angle corner the continuation can cover an outer probe, or
+     * briefly cover almost the entire sensor bar. Slow down and pivot around
+     * the inner wheel instead of continuing straight through the corner.
+     */
+    if (((position >= LINE_CONTROL_CORNER_POSITION_THRESHOLD) ||
+         (position <= -LINE_CONTROL_CORNER_POSITION_THRESHOLD) ||
+         (active_count >= LINE_CONTROL_WIDE_LINE_COUNT)) &&
+        (g_lastLineDirection != 0))
+    {
+        PID_Reset(&g_linePID);
+        LineControl_GetCornerTargets(
+            g_lastLineDirection,
+            &left_target,
+            &right_target);
+
+        g_status.line_detected = 1U;
+        g_status.position      = position;
+        g_status.correction    =
+            (float)g_lastLineDirection *
+            LINE_CONTROL_MAX_CORRECTION;
+        g_status.left_target   = left_target;
+        g_status.right_target  = right_target;
+
+        SpeedControl_SetTarget(left_target, right_target);
         return;
     }
 
@@ -173,6 +252,7 @@ void LineControl_Stop(void)
 {
     PID_Reset(&g_linePID);
 
+    g_lastLineDirection      = 0;
     g_status.correction   = 0.0f;
     g_status.left_target  = 0.0f;
     g_status.right_target = 0.0f;
