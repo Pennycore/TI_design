@@ -9,7 +9,7 @@
  * 若车辆向前行驶时某一侧计数为负，可将对应值改成 -1；
  * 也可以交换该侧编码器的 A、B 接线。
  */
-#define ENCODER_LEFT_DIRECTION     (1)
+#define ENCODER_LEFT_DIRECTION     (-1)
 #define ENCODER_RIGHT_DIRECTION    (1)
 
 typedef struct
