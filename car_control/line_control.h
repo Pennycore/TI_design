@@ -3,61 +3,64 @@
 
 #include <stdint.h>
 
-/*
- * 循迹控制周期约为 10 ms。
- * GraySensor_Read() 内部使用约 1 ms 完成帧同步，main 再等待约 9 ms。
- */
-#define LINE_CONTROL_PERIOD_SECONDS       (0.010f)
+/* The gray sensor is sampled about every 10 ms. */
+#define LINE_CONTROL_PERIOD_SECONDS          (0.010f)
 
 /*
- * 目标速度单位与 SpeedControl 相同：
- * 编码器四倍频计数/10 ms。
+ * Wheel speed unit: quadrature encoder counts per 10 ms.
  *
- * 首次实车测试使用较低速度，确认方向正确后再逐步提高。
+ * These conservative defaults are intended to make ordinary tracking work
+ * before increasing speed.  The R35 cm ends of the competition track do not
+ * need any right-angle or pivot-turn state machine.
  */
-#define LINE_CONTROL_DEFAULT_BASE_SPEED   (3.0f)
-#define LINE_CONTROL_MAX_WHEEL_SPEED      (6.0f)
-#define LINE_CONTROL_MAX_CORRECTION       (3.0f)
+#define LINE_CONTROL_DEFAULT_BASE_SPEED      (3.0f)
+#define LINE_CONTROL_MIN_BASE_SPEED          (2.2f)
+#define LINE_CONTROL_MAX_WHEEL_SPEED         (6.0f)
+#define LINE_CONTROL_MAX_CORRECTION          (3.0f)
+#define LINE_CONTROL_CURVE_SLOWDOWN          (0.8f)
 
 /*
- * Low-speed right-angle corner handling.
- * When the line reaches an outer probe, pivot around the inner wheel.
- * If the line disappears, keep searching in the last known direction for
- * at most 1.5 seconds, then stop.
+ * Position PID.  Position is normalized to -1.0 (left) ... +1.0 (right).
+ * Integral is intentionally disabled for line tracking.
  */
-#define LINE_CONTROL_CORNER_POSITION_THRESHOLD (0.65f)
-#define LINE_CONTROL_DIRECTION_THRESHOLD       (0.05f)
-#define LINE_CONTROL_WIDE_LINE_COUNT            (7U)
-#define LINE_CONTROL_CORNER_OUTER_SPEED         (5.0f)
-#define LINE_CONTROL_CORNER_INNER_SPEED         (-2.0f)
-#define LINE_CONTROL_SEARCH_MAX_CYCLES          (150U)
+#define LINE_CONTROL_KP                      (3.2f)
+#define LINE_CONTROL_KI                      (0.0f)
+#define LINE_CONTROL_KD                      (0.015f)
 
 /*
- * 循迹 PID 初始值。
- * 先调整 KP，再加入少量 KD；一般暂时不需要 KI。
+ * Low-pass filter coefficient for the newest position sample.
+ * 1.0 disables filtering; a smaller value filters more strongly.
  */
-#define LINE_CONTROL_KP                   (4.0f)
-#define LINE_CONTROL_KI                   (0.0f)
-#define LINE_CONTROL_KD                   (0.025f)
+#define LINE_CONTROL_POSITION_FILTER_ALPHA   (0.70f)
+#define LINE_CONTROL_DIRECTION_THRESHOLD     (0.08f)
 
 /*
- * 传感器安装方向配置。
- * 如果实测 bit0 位于车身右侧，将其改为 0。
+ * A one- or two-frame sensor dropout should not stop the car.  If the line is
+ * still absent, steer forward in the last known direction for at most 250 ms,
+ * then stop.  The inner wheel never reverses during ordinary tracking.
  */
-#define LINE_CONTROL_BIT0_IS_LEFT         (1U)
+#define LINE_CONTROL_LOST_HOLD_CYCLES        (2U)
+#define LINE_CONTROL_SEARCH_MAX_CYCLES       (25U)
+#define LINE_CONTROL_SEARCH_OUTER_SPEED      (2.5f)
+#define LINE_CONTROL_SEARCH_INNER_SPEED      (0.6f)
 
 /*
- * 当前按照“白底黑线”配置：传感器读到黑线时对应 bit 为 0。
- * 若以后改为循白线，将其改为 0。
+ * Sensor installation:
+ * - The on-car steering test showed that bit 0 is on the physical left:
+ *   a line on the left must slow the left wheel and speed the right wheel.
+ * - The competition track is a black line on a white background.  The current
+ *   sensor protocol reports white as 1 and black as 0, so TRACK_BLACK_LINE=1
+ *   inverts the raw byte before calculating position.
  */
-#define LINE_CONTROL_TRACK_BLACK_LINE     (1U)
+#define LINE_CONTROL_BIT0_IS_LEFT            (1U)
+#define LINE_CONTROL_TRACK_BLACK_LINE        (1U)
 
 /*
- * The current driver wiring maps channel A to the physical right wheel and
- * channel B to the physical left wheel. Swap only the requested wheel targets
- * so each motor/encoder speed loop remains paired with its existing channel.
+ * Bench test result:
+ * driver/encoder channel A is the physical left wheel and channel B is the
+ * physical right wheel, so physical wheel requests must not be swapped.
  */
-#define LINE_CONTROL_SWAP_MOTOR_CHANNELS   (1U)
+#define LINE_CONTROL_SWAP_MOTOR_CHANNELS     (0U)
 
 typedef struct
 {
@@ -65,44 +68,22 @@ typedef struct
     uint8_t line_bits;
     uint8_t active_count;
     uint8_t line_detected;
+    uint8_t search_active;
+    int8_t last_direction;
     uint32_t update_count;
     uint32_t lost_count;
+    float raw_position;
     float position;
     float correction;
     float left_target;
     float right_target;
 } LineControl_Status_t;
 
-/*
- * 初始化循迹 PID 和状态。
- * 应在 GraySensor_Init()、SpeedControl_Init() 之后调用。
- */
 void LineControl_Init(void);
-
-/*
- * 读取一次八路灰度数据并更新左右轮目标速度。
- * 未检测到黑线时默认立即停车。
- */
 void LineControl_Update(void);
-
-/*
- * 停止循迹并清空循迹 PID。
- */
 void LineControl_Stop(void);
-
-/*
- * 修改直线基础速度。
- */
 void LineControl_SetBaseSpeed(float base_speed);
-
-/*
- * 修改循迹 PID 参数。
- */
 void LineControl_SetTunings(float kp, float ki, float kd);
-
-/*
- * 获取最近一次循迹状态，便于 CCS Watch 调试。
- */
 void LineControl_GetStatus(LineControl_Status_t *status);
 
 #endif /* LINE_CONTROL_H_ */

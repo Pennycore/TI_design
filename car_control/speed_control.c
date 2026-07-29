@@ -51,6 +51,86 @@ static int SpeedControl_DirectionChanged(float old_value, float new_value)
         ((old_value < 0.0f) && (new_value > 0.0f));
 }
 
+static float SpeedControl_Abs(float value)
+{
+    if (value < 0.0f)
+    {
+        return -value;
+    }
+
+    return value;
+}
+
+static float SpeedControl_Limit(
+    float value,
+    float minimum,
+    float maximum)
+{
+    if (value > maximum)
+    {
+        return maximum;
+    }
+
+    if (value < minimum)
+    {
+        return minimum;
+    }
+
+    return value;
+}
+
+/*
+ * 目标速度的符号只负责决定电机方向；PID 比较速度绝对值，只修正
+ * 0～100% 的占空比。实际速度略高于目标时只会降低驱动力，不会反转。
+ */
+static float SpeedControl_CalculateWheel(
+    PID_t *pid,
+    float target,
+    float actual)
+{
+    float direction;
+    float target_magnitude;
+    float actual_magnitude;
+    float feedforward;
+    float correction;
+    float duty;
+
+    if (SpeedControl_IsZero(target))
+    {
+        PID_Reset(pid);
+        return 0.0f;
+    }
+
+    direction = (target > 0.0f) ? 1.0f : -1.0f;
+    target_magnitude = SpeedControl_Abs(target);
+    actual_magnitude = SpeedControl_Abs(actual);
+
+    feedforward =
+        SPEED_CONTROL_MIN_DRIVE_DUTY +
+        SPEED_CONTROL_FEEDFORWARD_GAIN * target_magnitude;
+    correction = PID_Calculate(
+        pid,
+        target_magnitude,
+        actual_magnitude);
+    duty = SpeedControl_Limit(
+        feedforward + correction,
+        0.0f,
+        SPEED_CONTROL_OUTPUT_MAX);
+
+    /*
+     * A low-speed command that is sufficient with the wheels lifted may not
+     * overcome tire, gearbox and chassis static friction on the floor.
+     * Apply a bounded breakaway command only while the encoder is stationary.
+     */
+    if ((actual_magnitude < SPEED_CONTROL_MOVING_THRESHOLD) &&
+        (duty < SPEED_CONTROL_BREAKAWAY_DUTY))
+    {
+        duty = SPEED_CONTROL_BREAKAWAY_DUTY;
+    }
+
+    return direction * duty;
+}
+
 void SpeedControl_Init(void)
 {
     uint32_t primask;
@@ -152,31 +232,15 @@ void SpeedControl_Update(void)
     right_target = g_rightTarget;
     SpeedControl_ExitCritical(primask);
 
-    if (SpeedControl_IsZero(left_target))
-    {
-        PID_Reset(&g_leftPID);
-        left_output = 0.0f;
-    }
-    else
-    {
-        left_output = PID_Calculate(
-            &g_leftPID,
-            left_target,
-            (float)actual.left);
-    }
+    left_output = SpeedControl_CalculateWheel(
+        &g_leftPID,
+        left_target,
+        (float)actual.left);
 
-    if (SpeedControl_IsZero(right_target))
-    {
-        PID_Reset(&g_rightPID);
-        right_output = 0.0f;
-    }
-    else
-    {
-        right_output = PID_Calculate(
-            &g_rightPID,
-            right_target,
-            (float)actual.right);
-    }
+    right_output = SpeedControl_CalculateWheel(
+        &g_rightPID,
+        right_target,
+        (float)actual.right);
 
     primask = SpeedControl_EnterCritical();
     g_leftActual  = actual.left;

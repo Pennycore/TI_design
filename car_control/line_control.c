@@ -4,14 +4,23 @@
 #include "pid.h"
 #include "speed_control.h"
 
+#if (LINE_CONTROL_BIT0_IS_LEFT > 1U)
+#error "LINE_CONTROL_BIT0_IS_LEFT must be 0 or 1"
+#endif
+
+#if (LINE_CONTROL_TRACK_BLACK_LINE > 1U)
+#error "LINE_CONTROL_TRACK_BLACK_LINE must be 0 or 1"
+#endif
+
 #if (LINE_CONTROL_SWAP_MOTOR_CHANNELS > 1U)
 #error "LINE_CONTROL_SWAP_MOTOR_CHANNELS must be 0 or 1"
 #endif
 
-/*
- * 八个探头从左到右的位置权重。
- * 除以 3500 后，最终位置范围约为 -1.0～+1.0。
- */
+#if (LINE_CONTROL_LOST_HOLD_CYCLES > LINE_CONTROL_SEARCH_MAX_CYCLES)
+#error "LOST_HOLD_CYCLES must not exceed SEARCH_MAX_CYCLES"
+#endif
+
+/* Eight sensor positions, ordered from the physical left to the right. */
 static const int16_t g_lineWeights[8] = {
     -3500, -2500, -1500, -500,
       500,  1500,  2500, 3500
@@ -19,8 +28,17 @@ static const int16_t g_lineWeights[8] = {
 
 static PID_t g_linePID;
 static float g_baseSpeed;
-static LineControl_Status_t g_status;
+static float g_filteredPosition;
+static float g_lastLeftTarget;
+static float g_lastRightTarget;
 static int8_t g_lastLineDirection;
+static uint8_t g_positionValid;
+static LineControl_Status_t g_status;
+
+static float LineControl_Abs(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
 
 static float LineControl_Limit(
     float value,
@@ -77,41 +95,55 @@ static float LineControl_GetPosition(
         return 0.0f;
     }
 
-    return
-        ((float)weighted_sum / (float)count) /
-        3500.0f;
+    return ((float)weighted_sum / (float)count) / 3500.0f;
 }
 
-static void LineControl_GetCornerTargets(
+/*
+ * left_target/right_target are physical wheel requests.  The optional swap
+ * below adapts those requests to the existing driver and encoder wiring.
+ */
+static void LineControl_ApplyWheelTargets(
+    float left_target,
+    float right_target)
+{
+    g_lastLeftTarget  = left_target;
+    g_lastRightTarget = right_target;
+
+    g_status.left_target  = left_target;
+    g_status.right_target = right_target;
+
+#if LINE_CONTROL_SWAP_MOTOR_CHANNELS
+    SpeedControl_SetTarget(right_target, left_target);
+#else
+    SpeedControl_SetTarget(left_target, right_target);
+#endif
+}
+
+static void LineControl_StopWheels(void)
+{
+    g_lastLeftTarget  = 0.0f;
+    g_lastRightTarget = 0.0f;
+    g_status.left_target  = 0.0f;
+    g_status.right_target = 0.0f;
+    SpeedControl_Stop();
+}
+
+static void LineControl_GetSearchTargets(
     int8_t direction,
     float *left_target,
     float *right_target)
 {
     if (direction > 0)
     {
-        *left_target  = LINE_CONTROL_CORNER_OUTER_SPEED;
-        *right_target = LINE_CONTROL_CORNER_INNER_SPEED;
+        /* Line was on the right: left/outer wheel remains faster. */
+        *left_target  = LINE_CONTROL_SEARCH_OUTER_SPEED;
+        *right_target = LINE_CONTROL_SEARCH_INNER_SPEED;
     }
     else
     {
-        *left_target  = LINE_CONTROL_CORNER_INNER_SPEED;
-        *right_target = LINE_CONTROL_CORNER_OUTER_SPEED;
+        *left_target  = LINE_CONTROL_SEARCH_INNER_SPEED;
+        *right_target = LINE_CONTROL_SEARCH_OUTER_SPEED;
     }
-}
-
-static void LineControl_ApplyWheelTargets(
-    float physical_left_target,
-    float physical_right_target)
-{
-#if LINE_CONTROL_SWAP_MOTOR_CHANNELS
-    SpeedControl_SetTarget(
-        physical_right_target,
-        physical_left_target);
-#else
-    SpeedControl_SetTarget(
-        physical_left_target,
-        physical_right_target);
-#endif
 }
 
 void LineControl_Init(void)
@@ -125,14 +157,22 @@ void LineControl_Init(void)
         -LINE_CONTROL_MAX_CORRECTION,
         LINE_CONTROL_MAX_CORRECTION);
 
-    g_baseSpeed            = LINE_CONTROL_DEFAULT_BASE_SPEED;
-    g_lastLineDirection    = 0;
+    g_baseSpeed        = LINE_CONTROL_DEFAULT_BASE_SPEED;
+    g_filteredPosition = 0.0f;
+    g_lastLeftTarget   = 0.0f;
+    g_lastRightTarget  = 0.0f;
+    g_lastLineDirection = 0;
+    g_positionValid    = 0U;
+
     g_status.raw_sensor    = 0xFFU;
     g_status.line_bits     = 0U;
     g_status.active_count  = 0U;
     g_status.line_detected = 0U;
+    g_status.search_active = 0U;
+    g_status.last_direction = 0;
     g_status.update_count  = 0U;
     g_status.lost_count    = 0U;
+    g_status.raw_position  = 0.0f;
     g_status.position      = 0.0f;
     g_status.correction    = 0.0f;
     g_status.left_target   = 0.0f;
@@ -146,109 +186,129 @@ void LineControl_Update(void)
     uint8_t raw_sensor;
     uint8_t line_bits;
     uint8_t active_count;
-    float position;
+    float raw_position;
     float correction;
+    float running_base;
     float left_target;
     float right_target;
 
     raw_sensor = GraySensor_Read();
     line_bits = LineControl_GetLineBits(raw_sensor);
-    position = LineControl_GetPosition(line_bits, &active_count);
+    raw_position = LineControl_GetPosition(line_bits, &active_count);
 
     g_status.raw_sensor   = raw_sensor;
     g_status.line_bits    = line_bits;
     g_status.active_count = active_count;
+    g_status.raw_position = raw_position;
     g_status.update_count++;
 
-    /*
-     * 没有任何探头检测到目标线时立即停车。
-     * 待硬件方向和赛道确认后，再增加记忆方向搜索策略。
-     */
     if (active_count == 0U)
     {
         g_status.line_detected = 0U;
         g_status.lost_count++;
-        g_status.position     = 0.0f;
-        g_status.correction   = 0.0f;
+        g_status.correction = 0.0f;
+
+        /*
+         * Hold the previous command across a very short read glitch.  This
+         * avoids stop/start chatter without hiding a genuine line loss.
+         */
+        if ((g_positionValid != 0U) &&
+            (g_status.lost_count <= LINE_CONTROL_LOST_HOLD_CYCLES))
+        {
+            g_status.search_active = 0U;
+            LineControl_ApplyWheelTargets(
+                g_lastLeftTarget,
+                g_lastRightTarget);
+            return;
+        }
 
         PID_Reset(&g_linePID);
 
         if ((g_lastLineDirection != 0) &&
             (g_status.lost_count <= LINE_CONTROL_SEARCH_MAX_CYCLES))
         {
-            LineControl_GetCornerTargets(
+            LineControl_GetSearchTargets(
                 g_lastLineDirection,
                 &left_target,
                 &right_target);
 
+            g_status.search_active = 1U;
             g_status.correction =
                 (float)g_lastLineDirection *
-                LINE_CONTROL_MAX_CORRECTION;
-            g_status.left_target  = left_target;
-            g_status.right_target = right_target;
-
+                (LINE_CONTROL_SEARCH_OUTER_SPEED -
+                 LINE_CONTROL_SEARCH_INNER_SPEED) *
+                0.5f;
             LineControl_ApplyWheelTargets(left_target, right_target);
         }
         else
         {
-            g_status.left_target  = 0.0f;
-            g_status.right_target = 0.0f;
-            SpeedControl_Stop();
+            g_status.search_active = 0U;
+            g_positionValid = 0U;
+            LineControl_StopWheels();
         }
 
         return;
     }
 
-    g_status.lost_count = 0U;
+    /*
+     * Do not blend a newly reacquired line position with stale data from
+     * before the loss.  During normal tracking, filter one-frame bit jitter.
+     */
+    if ((g_positionValid == 0U) || (g_status.lost_count != 0U))
+    {
+        g_filteredPosition = raw_position;
+        PID_Reset(&g_linePID);
+    }
+    else
+    {
+        g_filteredPosition +=
+            LINE_CONTROL_POSITION_FILTER_ALPHA *
+            (raw_position - g_filteredPosition);
+    }
 
-    if (position > LINE_CONTROL_DIRECTION_THRESHOLD)
+    g_positionValid = 1U;
+    g_status.line_detected = 1U;
+    g_status.search_active = 0U;
+    g_status.lost_count = 0U;
+    g_status.position = g_filteredPosition;
+
+    if (g_filteredPosition > LINE_CONTROL_DIRECTION_THRESHOLD)
     {
         g_lastLineDirection = 1;
     }
-    else if (position < -LINE_CONTROL_DIRECTION_THRESHOLD)
+    else if (g_filteredPosition < -LINE_CONTROL_DIRECTION_THRESHOLD)
     {
         g_lastLineDirection = -1;
     }
+    g_status.last_direction = g_lastLineDirection;
 
     /*
-     * At a right-angle corner the continuation can cover an outer probe, or
-     * briefly cover almost the entire sensor bar. Slow down and pivot around
-     * the inner wheel instead of continuing straight through the corner.
+     * A positive position means the line is to the right.  A positive
+     * correction therefore speeds up the physical left wheel and slows the
+     * physical right wheel.
      */
-    if (((position >= LINE_CONTROL_CORNER_POSITION_THRESHOLD) ||
-         (position <= -LINE_CONTROL_CORNER_POSITION_THRESHOLD) ||
-         (active_count >= LINE_CONTROL_WIDE_LINE_COUNT)) &&
-        (g_lastLineDirection != 0))
-    {
-        PID_Reset(&g_linePID);
-        LineControl_GetCornerTargets(
-            g_lastLineDirection,
-            &left_target,
-            &right_target);
-
-        g_status.line_detected = 1U;
-        g_status.position      = position;
-        g_status.correction    =
-            (float)g_lastLineDirection *
-            LINE_CONTROL_MAX_CORRECTION;
-        g_status.left_target   = left_target;
-        g_status.right_target  = right_target;
-
-        LineControl_ApplyWheelTargets(left_target, right_target);
-        return;
-    }
+    correction = PID_Calculate(
+        &g_linePID,
+        g_filteredPosition,
+        0.0f);
 
     /*
-     * position > 0 表示目标线位于车身右侧。
-     * 此时提高左轮速度、降低右轮速度，使车辆向右修正。
+     * Reduce speed progressively near the edge of the sensor bar.  This is
+     * continuous steering for the oval ends, not a special corner action.
      */
-    correction = PID_Calculate(&g_linePID, position, 0.0f);
-    left_target = g_baseSpeed + correction;
-    right_target = g_baseSpeed - correction;
+    running_base =
+        g_baseSpeed -
+        LINE_CONTROL_CURVE_SLOWDOWN *
+        LineControl_Abs(g_filteredPosition);
+    running_base = LineControl_Limit(
+        running_base,
+        LINE_CONTROL_MIN_BASE_SPEED,
+        g_baseSpeed);
 
-    /*
-     * 初次调试不允许内侧轮反转，避免传感器方向错误时突然原地旋转。
-     */
+    left_target  = running_base + correction;
+    right_target = running_base - correction;
+
+    /* Ordinary tracking never commands a wheel to reverse. */
     left_target = LineControl_Limit(
         left_target,
         0.0f,
@@ -258,12 +318,7 @@ void LineControl_Update(void)
         0.0f,
         LINE_CONTROL_MAX_WHEEL_SPEED);
 
-    g_status.line_detected = 1U;
-    g_status.position      = position;
-    g_status.correction    = correction;
-    g_status.left_target   = left_target;
-    g_status.right_target  = right_target;
-
+    g_status.correction = correction;
     LineControl_ApplyWheelTargets(left_target, right_target);
 }
 
@@ -271,19 +326,25 @@ void LineControl_Stop(void)
 {
     PID_Reset(&g_linePID);
 
-    g_lastLineDirection      = 0;
-    g_status.correction   = 0.0f;
-    g_status.left_target  = 0.0f;
-    g_status.right_target = 0.0f;
+    g_filteredPosition = 0.0f;
+    g_lastLineDirection = 0;
+    g_positionValid = 0U;
+    g_status.line_detected = 0U;
+    g_status.search_active = 0U;
+    g_status.last_direction = 0;
+    g_status.lost_count = 0U;
+    g_status.raw_position = 0.0f;
+    g_status.position = 0.0f;
+    g_status.correction = 0.0f;
 
-    SpeedControl_Stop();
+    LineControl_StopWheels();
 }
 
 void LineControl_SetBaseSpeed(float base_speed)
 {
     g_baseSpeed = LineControl_Limit(
         base_speed,
-        0.0f,
+        LINE_CONTROL_MIN_BASE_SPEED,
         LINE_CONTROL_MAX_WHEEL_SPEED);
 }
 

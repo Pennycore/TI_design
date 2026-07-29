@@ -14,7 +14,7 @@ void GraySensor_Init(void);
  *
  * bit0～bit7 依次对应第 1～8 路探头。
  * 校准后，接近白场输出 1，接近黑场输出 0。
- * 函数会先等待 1 ms 完成帧同步，随后读取一帧数据。
+ * CLK 空闲时保持高电平，每次下降沿后读取一路数据。
  */
 uint8_t GraySensor_Read(void);
 

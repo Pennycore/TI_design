@@ -19,6 +19,22 @@
 #define SPEED_CONTROL_RIGHT_KI          (4.0f)
 #define SPEED_CONTROL_RIGHT_KD          (0.0f)
 
+/*
+ * 克服 32 cm x 24 cm 大车体的静摩擦和负载需要一个基础占空比。
+ * PID 只在此前馈值附近修正速度大小，电机方向始终由目标速度符号决定。
+ */
+#define SPEED_CONTROL_MIN_DRIVE_DUTY    (35.0f)
+#define SPEED_CONTROL_FEEDFORWARD_GAIN  (6.0f)
+
+/*
+ * The wheels turned correctly with the chassis lifted, but the original
+ * command could not reliably overcome the complete car's static friction.
+ * While an encoder still reports zero speed, use a short breakaway-level
+ * command.  Closed-loop control automatically takes over once motion starts.
+ */
+#define SPEED_CONTROL_BREAKAWAY_DUTY     (60.0f)
+#define SPEED_CONTROL_MOVING_THRESHOLD  (1.0f)
+
 typedef struct
 {
     float left_target;
