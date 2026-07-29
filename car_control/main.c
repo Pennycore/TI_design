@@ -1,15 +1,22 @@
 #include "ti_msp_dl_config.h"
+
 #include "encoder.h"
 #include "gray_sensor.h"
+#include "k230_uart.h"
 #include "line_control.h"
 #include "motor.h"
 #include "speed_control.h"
 
 /*
+<<<<<<< HEAD
  * Temporary bench-test mode.
  *
  * IMPORTANT: lift both wheels off the ground before flashing this build.
  * Set to 0 after motor/encoder direction testing is complete.
+=======
+ * GraySensor_Read()内部约等待1ms。
+ * 主循环额外等待约9ms，使循迹周期接近10ms。
+>>>>>>> c4c408127b779efd2b8ce6b4ef4b3f90f99e0207
  */
 #define MOTOR_ENCODER_TEST_ENABLE          (0U)
 #define SPEED_CONTROL_TEST_ENABLE          (0U)
@@ -24,6 +31,9 @@
 #define LINE_CONTROL_MAIN_DELAY_CYCLES \
     ((CPUCLK_FREQ / 1000U) * 10U)
 
+/*
+ * 上电后等待3秒再启动。
+ */
 #define LINE_CONTROL_STARTUP_DELAY_CYCLES \
     (CPUCLK_FREQ * 3U)
 
@@ -221,6 +231,9 @@ static void SpeedControlTest_UpdateStatus(void)
 
 int main(void)
 {
+    /*
+     * 初始化SysConfig生成的所有外设。
+     */
     SYSCFG_DL_init();
 
 #if MOTOR_ENCODER_TEST_ENABLE
@@ -253,25 +266,41 @@ int main(void)
     }
 #else
     /*
-     * 速度控制定时器启动前，必须先完成电机和编码器初始化。
+     * 初始化顺序不能随意改变。
      */
     Motor_Init();
     Encoder_Init();
     GraySensor_Init();
+    K230Uart_Init();
     SpeedControl_Init();
     LineControl_Init();
 
     /*
-     * Wait three seconds after reset before enabling line tracking so the
-     * operator can put the car down and move a hand away safely.
+     * 等待3秒，方便将小车放到黑线上并移开双手。
      */
-    delay_cycles(LINE_CONTROL_STARTUP_DELAY_CYCLES);
+    delay_cycles(
+        LINE_CONTROL_STARTUP_DELAY_CYCLES);
 
     while (1)
     {
+        K230Uart_Poll();
+
+        /*
+         * 读取灰度传感器并更新循迹控制。
+         */
         LineControl_Update();
+<<<<<<< HEAD
         NormalMode_UpdateStatus();
         delay_cycles(LINE_CONTROL_MAIN_DELAY_CYCLES);
     }
 #endif
 }
+=======
+
+        K230Uart_Poll();
+
+        delay_cycles(
+            LINE_CONTROL_MAIN_DELAY_CYCLES);
+    }
+}
+>>>>>>> c4c408127b779efd2b8ce6b4ef4b3f90f99e0207

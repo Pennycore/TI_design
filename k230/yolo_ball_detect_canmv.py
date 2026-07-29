@@ -41,6 +41,8 @@ UART_BAUD = 115200
 UART_ID = 2
 K230_UART_TX_GPIO = 5
 K230_UART_RX_GPIO = 6
+DEBUG_PRINT = True
+DEBUG_PRINT_INTERVAL = 15
 
 SERIAL_SOF0 = 0xA5
 SERIAL_SOF1 = 0x5A
@@ -343,6 +345,39 @@ def multi_ball_payload(balls):
     return bytes(payload)
 
 
+def debug_print_detection(frame_index, ball, balls, stable, center_x):
+    if not DEBUG_PRINT or frame_index % DEBUG_PRINT_INTERVAL != 0:
+        return
+
+    if ball is None:
+        print("VISION frame=%d main=none count=%d" % (
+            frame_index,
+            min(len(balls), MAX_MULTI_BALLS),
+        ))
+        return
+
+    flags = BALL_FLAG_DETECTED
+    if stable:
+        flags |= BALL_FLAG_STABLE
+    if ball["height"] >= CLOSE_BOX_HEIGHT:
+        flags |= BALL_FLAG_CLOSE
+
+    print(
+        "VISION frame=%d main=T%d x=%d y=%d r=%d dx=%d conf=%d flags=0x%02X count=%d"
+        % (
+            frame_index,
+            ball["track_id"],
+            int(ball["cx"]),
+            int(ball["cy"]),
+            max(ball["width"], ball["height"]) // 2,
+            int(ball["cx"] - center_x),
+            min(100, int(ball["confidence"] * 100)),
+            flags,
+            min(len(balls), MAX_MULTI_BALLS),
+        )
+    )
+
+
 def setup_uart():
     fpioa = FPIOA()
     fpioa.set_function(K230_UART_TX_GPIO, FPIOA.UART2_TXD)
@@ -394,6 +429,7 @@ def main():
     detector = None
     uart = None
     seq = 0
+    frame_index = 0
     tracker = MultiBallTracker()
     primary_track_id = None
 
@@ -451,10 +487,12 @@ def main():
                 and ball["observed"]
                 and ball["streak"] >= STABLE_FRAMES
             )
+            debug_print_detection(frame_index, ball, balls, stable, center_x)
             uart.write(pack_frame(MSG_VISION_BALL, seq, ball_payload(ball, stable, center_x)))
             seq = (seq + 1) & 0xFF
             uart.write(pack_frame(MSG_VISION_MULTI_BALL, seq, multi_ball_payload(balls)))
             seq = (seq + 1) & 0xFF
+            frame_index += 1
 
             detector.draw_result(pipeline, balls, ball, stable)
             pipeline.show_image()
