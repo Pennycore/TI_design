@@ -1,6 +1,8 @@
 #ifndef LINE_CONTROL_H_
 #define LINE_CONTROL_H_
 
+#include "competition_config.h"
+
 #include <stdint.h>
 
 /* The gray sensor is sampled about every 10 ms. */
@@ -17,7 +19,12 @@
 #define LINE_CONTROL_MIN_BASE_SPEED          (2.2f)
 #define LINE_CONTROL_MAX_WHEEL_SPEED         (22.0f)
 #define LINE_CONTROL_MAX_CORRECTION          (4.8f)
-#define LINE_CONTROL_CURVE_SLOWDOWN          (5.0f)
+#define LINE_CONTROL_CURVE_SLOWDOWN          \
+    COMPETITION_CURVE_SLOWDOWN
+#define LINE_CONTROL_BASE_ACCEL_STEP         \
+    COMPETITION_BASE_ACCEL_STEP
+#define LINE_CONTROL_START_STEER_RATIO       (0.50f)
+#define LINE_CONTROL_START_STEER_SPEED       (5.0f)
 
 /*
  * 增加随横向偏差平方增长的弯道补偿：
@@ -29,15 +36,15 @@
  * Position PID. Position is normalized to -1.0 (left) ... +1.0 (right).
  * Integral is intentionally disabled for line tracking.
  */
-#define LINE_CONTROL_KP                      (4.2f)
+#define LINE_CONTROL_KP                      (3.8f)
 #define LINE_CONTROL_KI                      (0.0f)
-#define LINE_CONTROL_KD                      (0.015f)
+#define LINE_CONTROL_KD                      (0.008f)
 
 /*
  * Low-pass filter coefficient for the newest position sample.
  * 1.0 disables filtering; a smaller value filters more strongly.
  */
-#define LINE_CONTROL_POSITION_FILTER_ALPHA   (0.85f)
+#define LINE_CONTROL_POSITION_FILTER_ALPHA   (0.45f)
 #define LINE_CONTROL_DIRECTION_THRESHOLD     (0.08f)
 
 /*
@@ -90,6 +97,7 @@ typedef struct
     float raw_position;
     float position;
     float correction;
+    float running_base;
     float left_target;
     float right_target;
 } LineControl_Status_t;

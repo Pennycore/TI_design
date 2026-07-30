@@ -1,6 +1,8 @@
 #ifndef SPEED_CONTROL_H_
 #define SPEED_CONTROL_H_
 
+#include "competition_config.h"
+
 #include <stdint.h>
 
 /*
@@ -23,8 +25,14 @@
  * 克服 32 cm x 24 cm 大车体的静摩擦和负载需要一个基础占空比。
  * PID 只在此前馈值附近修正速度大小，电机方向始终由目标速度符号决定。
  */
-#define SPEED_CONTROL_MIN_DRIVE_DUTY    (35.0f)
-#define SPEED_CONTROL_FEEDFORWARD_GAIN  (6.0f)
+#define SPEED_CONTROL_MIN_DRIVE_DUTY         (35.0f)
+#define SPEED_CONTROL_LOW_SPEED_LIMIT        (5.0f)
+#define SPEED_CONTROL_LOW_SPEED_FF_GAIN      (6.0f)
+#define SPEED_CONTROL_HIGH_SPEED_FF_GAIN     (2.5f)
+#define SPEED_CONTROL_OUTPUT_RISE_STEP       \
+    COMPETITION_OUTPUT_RISE_STEP
+#define SPEED_CONTROL_OUTPUT_FALL_STEP       \
+    COMPETITION_OUTPUT_FALL_STEP
 
 /*
  * The wheels turned correctly with the chassis lifted, but the original

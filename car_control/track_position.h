@@ -55,12 +55,12 @@
  * 行驶到完整一圈距离的85%后，
  * 才允许识别A点终点横线。
  */
-#define TRACK_FINISH_ENABLE_RATIO             (0.85f)
+#define TRACK_FINISH_ENABLE_RATIO             (0.92f)
 
 /*
  * A点横线连续检测有效时间。
  */
-#define TRACK_FINISH_MARKER_CONFIRM_MS        (30U)
+#define TRACK_FINISH_MARKER_CONFIRM_MS        (50U)
 
 /*
  * 判断到达B、C、D点时允许的距离误差。

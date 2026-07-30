@@ -34,6 +34,7 @@ static const int16_t g_lineWeights[8] = {
 
 static PID_t g_linePID;
 static float g_baseSpeed;
+static float g_rampedBaseSpeed;
 static float g_filteredPosition;
 static float g_lastLeftTarget;
 static float g_lastRightTarget;
@@ -165,6 +166,7 @@ void LineControl_Init(void)
         LINE_CONTROL_MAX_CORRECTION);
 
     g_baseSpeed         = LINE_CONTROL_DEFAULT_BASE_SPEED;
+    g_rampedBaseSpeed   = LINE_CONTROL_MIN_BASE_SPEED;
     g_filteredPosition = 0.0f;
     g_lastLeftTarget    = 0.0f;
     g_lastRightTarget   = 0.0f;
@@ -183,6 +185,7 @@ void LineControl_Init(void)
     g_status.raw_position   = 0.0f;
     g_status.position       = 0.0f;
     g_status.correction     = 0.0f;
+    g_status.running_base   = 0.0f;
     g_status.left_target    = 0.0f;
     g_status.right_target   = 0.0f;
 
@@ -197,6 +200,7 @@ void LineControl_Update(void)
     float raw_position;
     float absolute_position;
     float correction;
+    float correction_limit;
     float running_base;
     float left_target;
     float right_target;
@@ -323,17 +327,50 @@ void LineControl_Update(void)
         LINE_CONTROL_MAX_CORRECTION);
 
     /*
+     * Ramp only acceleration. Deceleration remains immediate so curve and
+     * final-stop commands are not delayed. At 10 ms per update, 0.15 raises
+     * the base request from 2.2 to 22 in about 1.3 seconds.
+     */
+    if (g_rampedBaseSpeed < g_baseSpeed)
+    {
+        g_rampedBaseSpeed += LINE_CONTROL_BASE_ACCEL_STEP;
+        if (g_rampedBaseSpeed > g_baseSpeed)
+        {
+            g_rampedBaseSpeed = g_baseSpeed;
+        }
+    }
+    else
+    {
+        g_rampedBaseSpeed = g_baseSpeed;
+    }
+
+    /*
+     * During launch, keep steering proportional to the small common speed.
+     * A slightly off-centre start therefore cannot command one wheel to jump.
+     */
+    if (g_rampedBaseSpeed < LINE_CONTROL_START_STEER_SPEED)
+    {
+        correction_limit =
+            g_rampedBaseSpeed * LINE_CONTROL_START_STEER_RATIO;
+        correction = LineControl_Limit(
+            correction,
+            -correction_limit,
+            correction_limit);
+    }
+
+    /*
      * Reduce speed progressively near the edge of the sensor bar. This is
      * continuous steering for the oval ends, not a special corner action.
      */
     running_base =
-        g_baseSpeed -
+        g_rampedBaseSpeed -
         LINE_CONTROL_CURVE_SLOWDOWN *
         absolute_position;
+
     running_base = LineControl_Limit(
         running_base,
         LINE_CONTROL_MIN_BASE_SPEED,
-        g_baseSpeed);
+        g_rampedBaseSpeed);
 
     left_target  = running_base + correction;
     right_target = running_base - correction;
@@ -349,6 +386,7 @@ void LineControl_Update(void)
         LINE_CONTROL_MAX_WHEEL_SPEED);
 
     g_status.correction = correction;
+    g_status.running_base = running_base;
     LineControl_ApplyWheelTargets(left_target, right_target);
 }
 
@@ -366,6 +404,7 @@ void LineControl_Stop(void)
     g_status.raw_position = 0.0f;
     g_status.position = 0.0f;
     g_status.correction = 0.0f;
+    g_status.running_base = 0.0f;
 
     LineControl_StopWheels();
 }

@@ -1,5 +1,6 @@
 #include "ti_msp_dl_config.h"
 
+#include "competition_config.h"
 #include "encoder.h"
 #include "gray_sensor.h"
 #include "k230_uart.h"
@@ -41,18 +42,30 @@
  * 先用6.0完成低速验证；达到20 s要求约需22计数/10 ms，
  * 必须在速度环和转向PID实车整定后再逐步提高。
  */
-#define TASK_CRUISE_SPEED                  (18.0f)
+#define TASK_CRUISE_SPEED                  COMPETITION_CRUISE_SPEED
 #define TASK_NEAR_FINISH_SPEED             (4.0f)
 #define TASK_FINAL_FAR_SPEED               (4.0f)
 #define TASK_FINAL_MIDDLE_SPEED            (3.0f)
-#define TASK_FINAL_NEAR_SPEED              (2.2f)
+#define TASK_FINAL_NEAR_SPEED              (3.0f)
+#define TASK_FINISH_MARKER_CROSS_SPEED      (3.0f)
 
 #define TASK_FINAL_MIDDLE_DISTANCE_MM      (100.0f)
 #define TASK_FINAL_NEAR_DISTANCE_MM        (40.0f)
-#define TASK_STOP_COMMAND_ADVANCE_MM       (5.0f)
+#define TASK_STOP_COMMAND_ADVANCE_MM       (10.0f)
 #define TASK_STOP_CONFIRM_CYCLES           (5U)
 #define TASK_LINE_LOST_ERROR_CYCLES        (150U)
 #define TASK_CONTROL_PERIOD_MS             (10U)
+
+/*
+ * Curve diagnostic windows use the measured lap distance. They deliberately
+ * start a little before B/D and end a little after C so entry/exit hunting is
+ * included. The finish marker itself is excluded from the statistics.
+ */
+#define TASK_CURVE1_DEBUG_START_MM          (1350.0f)
+#define TASK_CURVE1_DEBUG_END_MM            (3050.0f)
+#define TASK_CURVE2_DEBUG_START_MM          (4250.0f)
+#define TASK_DEBUG_SIGN_THRESHOLD           (0.12f)
+#define TASK_DEBUG_CORRECTION_LIMIT         (4.75f)
 
 typedef enum
 {
@@ -62,6 +75,25 @@ typedef enum
     TASK_STATE_FINISHED,
     TASK_STATE_ERROR
 } TaskState_t;
+
+typedef struct
+{
+    uint32_t sample_count;
+    uint32_t sensor_pattern_change_count;
+    uint32_t position_reversal_count;
+    uint32_t correction_reversal_count;
+    uint32_t correction_limit_count;
+    float max_abs_position;
+    float max_abs_correction;
+    float max_abs_target_difference;
+    float max_abs_actual_difference;
+    float max_abs_speed_error;
+    float min_average_target;
+    float max_average_target;
+    uint8_t last_line_bits;
+    int8_t last_position_sign;
+    int8_t last_correction_sign;
+} CurveDebug_t;
 
 /*
  * Live normal-mode diagnostics.  These symbols remain available in the CCS
@@ -74,6 +106,194 @@ volatile uint32_t g_taskElapsedTimeMs;
 volatile float g_taskDistanceMm;
 volatile float g_taskRemainingToStopMm;
 volatile uint8_t g_taskFinishMarkerConfirmed;
+volatile uint8_t g_competitionTaskMode =
+    (uint8_t)COMPETITION_TASK_MODE;
+volatile CurveDebug_t g_curve1Debug;
+volatile CurveDebug_t g_curve2Debug;
+volatile uint8_t g_curveDebugActiveSegment;
+
+static float Task_DebugAbs(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static int8_t Task_DebugSign(float value)
+{
+    if (value > TASK_DEBUG_SIGN_THRESHOLD)
+    {
+        return 1;
+    }
+
+    if (value < -TASK_DEBUG_SIGN_THRESHOLD)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
+static void Task_CurveDebugResetOne(
+    volatile CurveDebug_t *debug)
+{
+    debug->sample_count = 0U;
+    debug->sensor_pattern_change_count = 0U;
+    debug->position_reversal_count = 0U;
+    debug->correction_reversal_count = 0U;
+    debug->correction_limit_count = 0U;
+    debug->max_abs_position = 0.0f;
+    debug->max_abs_correction = 0.0f;
+    debug->max_abs_target_difference = 0.0f;
+    debug->max_abs_actual_difference = 0.0f;
+    debug->max_abs_speed_error = 0.0f;
+    debug->min_average_target = 1000.0f;
+    debug->max_average_target = 0.0f;
+    debug->last_line_bits = 0U;
+    debug->last_position_sign = 0;
+    debug->last_correction_sign = 0;
+}
+
+static void Task_CurveDebugReset(void)
+{
+    Task_CurveDebugResetOne(&g_curve1Debug);
+    Task_CurveDebugResetOne(&g_curve2Debug);
+    g_curveDebugActiveSegment = 0U;
+}
+
+static void Task_CurveDebugUpdate(
+    const LineControl_Status_t *line_status,
+    const SpeedControl_Status_t *speed_status)
+{
+    volatile CurveDebug_t *debug;
+    float distance_mm;
+    float abs_position;
+    float abs_correction;
+    float average_target;
+    float abs_target_difference;
+    float abs_actual_difference;
+    float left_speed_error;
+    float right_speed_error;
+    float max_speed_error;
+    int8_t position_sign;
+    int8_t correction_sign;
+
+    distance_mm = TrackPosition_GetDistanceMm();
+
+    if ((distance_mm >= TASK_CURVE1_DEBUG_START_MM) &&
+        (distance_mm <= TASK_CURVE1_DEBUG_END_MM))
+    {
+        debug = &g_curve1Debug;
+        g_curveDebugActiveSegment = 1U;
+    }
+    else if ((distance_mm >= TASK_CURVE2_DEBUG_START_MM) &&
+             (TrackPosition_IsAtFinish() == 0U))
+    {
+        debug = &g_curve2Debug;
+        g_curveDebugActiveSegment = 2U;
+    }
+    else
+    {
+        g_curveDebugActiveSegment = 0U;
+        return;
+    }
+
+    /*
+     * The transverse A marker is not a curve sample and would otherwise make
+     * the sensor-pattern and correction statistics misleading.
+     */
+    if (line_status->wide_marker != 0U)
+    {
+        return;
+    }
+
+    abs_position = Task_DebugAbs(line_status->position);
+    abs_correction = Task_DebugAbs(line_status->correction);
+    average_target =
+        (line_status->left_target + line_status->right_target) * 0.5f;
+    abs_target_difference = Task_DebugAbs(
+        line_status->left_target - line_status->right_target);
+    abs_actual_difference = Task_DebugAbs(
+        (float)speed_status->left_actual -
+        (float)speed_status->right_actual);
+    left_speed_error = Task_DebugAbs(
+        line_status->left_target -
+        (float)speed_status->left_actual);
+    right_speed_error = Task_DebugAbs(
+        line_status->right_target -
+        (float)speed_status->right_actual);
+    max_speed_error =
+        (left_speed_error > right_speed_error)
+            ? left_speed_error
+            : right_speed_error;
+
+    position_sign = Task_DebugSign(line_status->position);
+    correction_sign = Task_DebugSign(line_status->correction);
+
+    if (debug->sample_count != 0U)
+    {
+        if (debug->last_line_bits != line_status->line_bits)
+        {
+            debug->sensor_pattern_change_count++;
+        }
+
+        if ((position_sign != 0) &&
+            (debug->last_position_sign != 0) &&
+            (position_sign != debug->last_position_sign))
+        {
+            debug->position_reversal_count++;
+        }
+
+        if ((correction_sign != 0) &&
+            (debug->last_correction_sign != 0) &&
+            (correction_sign != debug->last_correction_sign))
+        {
+            debug->correction_reversal_count++;
+        }
+    }
+
+    if (abs_position > debug->max_abs_position)
+    {
+        debug->max_abs_position = abs_position;
+    }
+    if (abs_correction > debug->max_abs_correction)
+    {
+        debug->max_abs_correction = abs_correction;
+    }
+    if (abs_target_difference > debug->max_abs_target_difference)
+    {
+        debug->max_abs_target_difference = abs_target_difference;
+    }
+    if (abs_actual_difference > debug->max_abs_actual_difference)
+    {
+        debug->max_abs_actual_difference = abs_actual_difference;
+    }
+    if (max_speed_error > debug->max_abs_speed_error)
+    {
+        debug->max_abs_speed_error = max_speed_error;
+    }
+    if (average_target < debug->min_average_target)
+    {
+        debug->min_average_target = average_target;
+    }
+    if (average_target > debug->max_average_target)
+    {
+        debug->max_average_target = average_target;
+    }
+    if (abs_correction >= TASK_DEBUG_CORRECTION_LIMIT)
+    {
+        debug->correction_limit_count++;
+    }
+
+    debug->last_line_bits = line_status->line_bits;
+    if (position_sign != 0)
+    {
+        debug->last_position_sign = position_sign;
+    }
+    if (correction_sign != 0)
+    {
+        debug->last_correction_sign = correction_sign;
+    }
+    debug->sample_count++;
+}
 
 static void NormalMode_UpdateStatus(void)
 {
@@ -95,6 +315,7 @@ static void NormalMode_UpdateStatus(void)
     g_lineControlLive.raw_position = line_status.raw_position;
     g_lineControlLive.position = line_status.position;
     g_lineControlLive.correction = line_status.correction;
+    g_lineControlLive.running_base = line_status.running_base;
     g_lineControlLive.left_target = line_status.left_target;
     g_lineControlLive.right_target = line_status.right_target;
 
@@ -409,6 +630,7 @@ int main(void)
          */
         Encoder_Reset();
         TrackPosition_Reset();
+        Task_CurveDebugReset();
         LineControl_SetBaseSpeed(TASK_CRUISE_SPEED);
 
         start_tick = SpeedControl_GetTickCount();
@@ -453,6 +675,10 @@ int main(void)
                 TrackPosition_Update(
                     line_status.wide_marker,
                     TASK_CONTROL_PERIOD_MS);
+                SpeedControl_GetStatus(&speed_status);
+                Task_CurveDebugUpdate(
+                    &line_status,
+                    &speed_status);
 
                 if (line_status.lost_count >=
                     TASK_LINE_LOST_ERROR_CYCLES)
@@ -470,6 +696,20 @@ int main(void)
                          */
                         g_taskState =
                             TASK_STATE_FINAL_APPROACH;
+                    }
+                    else if (
+                        (TrackPosition_IsFinishDetectionEnabled() != 0U) &&
+                        (line_status.wide_marker != 0U))
+                    {
+                        /*
+                         * The transverse A marker is not an ordinary line
+                         * position sample. While confirming it, cross it at a
+                         * low equal wheel speed instead of allowing the line
+                         * PID to pivot on an asymmetric multi-probe pattern.
+                         */
+                        SpeedControl_SetTarget(
+                            TASK_FINISH_MARKER_CROSS_SPEED,
+                            TASK_FINISH_MARKER_CROSS_SPEED);
                     }
                     else if (TrackPosition_IsNearFinish() != 0U)
                     {

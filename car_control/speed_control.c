@@ -84,6 +84,34 @@ static float SpeedControl_Limit(
  * 目标速度的符号只负责决定电机方向；PID 比较速度绝对值，只修正
  * 0～100% 的占空比。实际速度略高于目标时只会降低驱动力，不会反转。
  */
+static float SpeedControl_ApplyOutputSlew(
+    PID_t *pid,
+    float previous,
+    float requested)
+{
+    float limited = requested;
+
+    if (requested > (previous + SPEED_CONTROL_OUTPUT_RISE_STEP))
+    {
+        limited = previous + SPEED_CONTROL_OUTPUT_RISE_STEP;
+    }
+    else if (requested < (previous - SPEED_CONTROL_OUTPUT_FALL_STEP))
+    {
+        limited = previous - SPEED_CONTROL_OUTPUT_FALL_STEP;
+    }
+
+    /*
+     * The output limiter, rather than the wheel, is responsible for this
+     * temporary error. Clear PID history to prevent soft-start wind-up.
+     */
+    if (limited != requested)
+    {
+        PID_Reset(pid);
+    }
+
+    return limited;
+}
+
 static float SpeedControl_CalculateWheel(
     PID_t *pid,
     float target,
@@ -106,9 +134,40 @@ static float SpeedControl_CalculateWheel(
     target_magnitude = SpeedControl_Abs(target);
     actual_magnitude = SpeedControl_Abs(actual);
 
+#if COMPETITION_SEGMENTED_SPEED_FF_ENABLE
+    /*
+     * Tasks 4/5/6 carry the ball. Preserve the proven low-speed drive level,
+     * but reduce the high-speed slope so the two wheel commands do not both
+     * collapse to 100% duty in a curve.
+     *
+     * target <= 5: 35 + 6.0 * target
+     * target >  5: 65 + 2.5 * (target - 5)
+     */
+    if (target_magnitude <= SPEED_CONTROL_LOW_SPEED_LIMIT)
+    {
+        feedforward =
+            SPEED_CONTROL_MIN_DRIVE_DUTY +
+            SPEED_CONTROL_LOW_SPEED_FF_GAIN * target_magnitude;
+    }
+    else
+    {
+        feedforward =
+            SPEED_CONTROL_MIN_DRIVE_DUTY +
+            SPEED_CONTROL_LOW_SPEED_FF_GAIN *
+                SPEED_CONTROL_LOW_SPEED_LIMIT +
+            SPEED_CONTROL_HIGH_SPEED_FF_GAIN *
+                (target_magnitude -
+                 SPEED_CONTROL_LOW_SPEED_LIMIT);
+    }
+#else
+    /*
+     * Task 2 uses the earlier aggressive response. At cruise speed 18 this
+     * intentionally reaches the output limit, prioritising lap time.
+     */
     feedforward =
         SPEED_CONTROL_MIN_DRIVE_DUTY +
-        SPEED_CONTROL_FEEDFORWARD_GAIN * target_magnitude;
+        SPEED_CONTROL_LOW_SPEED_FF_GAIN * target_magnitude;
+#endif
     correction = PID_Calculate(
         pid,
         target_magnitude,
@@ -225,6 +284,8 @@ void SpeedControl_Update(void)
     float right_target;
     float left_output;
     float right_output;
+    float previous_left_output;
+    float previous_right_output;
     uint32_t primask;
 
     Encoder_GetSpeed(&actual);
@@ -232,6 +293,8 @@ void SpeedControl_Update(void)
     primask = SpeedControl_EnterCritical();
     left_target  = g_leftTarget;
     right_target = g_rightTarget;
+    previous_left_output = g_leftOutput;
+    previous_right_output = g_rightOutput;
     SpeedControl_ExitCritical(primask);
 
     left_output = SpeedControl_CalculateWheel(
@@ -243,6 +306,30 @@ void SpeedControl_Update(void)
         &g_rightPID,
         right_target,
         (float)actual.right);
+
+    if (SpeedControl_IsZero(left_target))
+    {
+        left_output = 0.0f;
+    }
+    else
+    {
+        left_output = SpeedControl_ApplyOutputSlew(
+            &g_leftPID,
+            previous_left_output,
+            left_output);
+    }
+
+    if (SpeedControl_IsZero(right_target))
+    {
+        right_output = 0.0f;
+    }
+    else
+    {
+        right_output = SpeedControl_ApplyOutputSlew(
+            &g_rightPID,
+            previous_right_output,
+            right_output);
+    }
 
     primask = SpeedControl_EnterCritical();
     g_leftActual  = actual.left;
