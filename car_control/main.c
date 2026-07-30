@@ -420,7 +420,8 @@ int main(void)
         {
             K230Uart_Poll();
 
-            current_tick = SpeedControl_GetTickCount();
+            current_tick = 
+            SpeedControl_GetTickCount();
 
             /*
              * 只在新的10 ms硬件节拍到来时更新一次循迹。

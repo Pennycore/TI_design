@@ -3,34 +3,17 @@
 
 #include <stdint.h>
 
-#define GRAY_SENSOR_CHANNEL_COUNT    (8U)
-
 /*
- * Live calibration/debug values:
- * - g_graySensorRaw[]: latest 12-bit ADC result for CH1...CH8.
- * - g_graySensorWhite[]: measured white values at the final mounting height.
- * - g_graySensorBlack[]: measured black values at the final mounting height.
- *
- * The calibration arrays must be replaced after measuring the actual sensor.
- */
-extern volatile uint16_t
-    g_graySensorRaw[GRAY_SENSOR_CHANNEL_COUNT];
-extern volatile uint16_t
-    g_graySensorWhite[GRAY_SENSOR_CHANNEL_COUNT];
-extern volatile uint16_t
-    g_graySensorBlack[GRAY_SENSOR_CHANNEL_COUNT];
-extern volatile uint32_t g_graySensorAdcTimeoutCount;
-
-/*
- * Initialize the 74HC4051 address lines and ADC state.
+ * Initialize the Ganv eight-channel gray sensor serial interface.
+ * CLK is a push-pull output and idles high; DAT is a pull-up input.
  */
 void GraySensor_Init(void);
 
 /*
- * Select CH1...CH8 through AD0/AD1/AD2, sample OUT with ADC0 channel 0, and
- * apply per-channel hysteresis. bit0...bit7 correspond to CH1...CH8.
- * A white surface is returned as 1 and a black surface as 0 so the existing
- * black-line tracking layer remains compatible.
+ * Read eight digital channels through CLK and DAT.
+ *
+ * bit0...bit7 correspond to probes 1...8.
+ * After module calibration, white returns 1 and black returns 0.
  */
 uint8_t GraySensor_Read(void);
 
