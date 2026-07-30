@@ -20,11 +20,17 @@
 #error "LOST_HOLD_CYCLES must not exceed SEARCH_MAX_CYCLES"
 #endif
 
-/* Eight sensor positions, ordered from the physical left to the right. */
+/*
+ * Eight sensor positions in 0.001 cm, ordered from the physical left to the
+ * right. The measured inner positions are +/-0.6 cm and +/-1.7 cm; the
+ * remaining positions follow the approximately 1.1 cm sensor pitch.
+ */
 static const int16_t g_lineWeights[8] = {
-    -3500, -2500, -1500, -500,
-      500,  1500,  2500, 3500
+    -3900, -2800, -1700, -600,
+      600,  1700,  2800, 3900
 };
+
+#define LINE_SENSOR_POSITION_SCALE    (3900.0f)
 
 static PID_t g_linePID;
 static float g_baseSpeed;
@@ -95,7 +101,8 @@ static float LineControl_GetPosition(
         return 0.0f;
     }
 
-    return ((float)weighted_sum / (float)count) / 3500.0f;
+    return ((float)weighted_sum / (float)count) /
+           LINE_SENSOR_POSITION_SCALE;
 }
 
 /*
@@ -168,6 +175,7 @@ void LineControl_Init(void)
     g_status.line_bits      = 0U;
     g_status.active_count   = 0U;
     g_status.line_detected  = 0U;
+    g_status.wide_marker    = 0U;
     g_status.search_active  = 0U;
     g_status.last_direction = 0;
     g_status.update_count   = 0U;
@@ -187,6 +195,7 @@ void LineControl_Update(void)
     uint8_t line_bits;
     uint8_t active_count;
     float raw_position;
+    float absolute_position;
     float correction;
     float running_base;
     float left_target;
@@ -199,6 +208,11 @@ void LineControl_Update(void)
     g_status.raw_sensor   = raw_sensor;
     g_status.line_bits    = line_bits;
     g_status.active_count = active_count;
+    g_status.wide_marker =
+        ((active_count >= LINE_CONTROL_WIDE_MARKER_MIN_SENSORS) &&
+         ((line_bits & LINE_CONTROL_WIDE_MARKER_CENTER_MASK) != 0U))
+            ? 1U
+            : 0U;
     g_status.raw_position = raw_position;
     g_status.update_count++;
 
@@ -293,13 +307,29 @@ void LineControl_Update(void)
         0.0f);
 
     /*
+     * The sensor row is well ahead of the vehicle reference point. Add a
+     * nonlinear term so small straight-line errors remain smooth while the
+     * outer probes command a much tighter turn.
+     */
+    absolute_position =
+        LineControl_Abs(g_filteredPosition);
+    correction +=
+        LINE_CONTROL_CURVE_BOOST *
+        g_filteredPosition *
+        absolute_position;
+    correction = LineControl_Limit(
+        correction,
+        -LINE_CONTROL_MAX_CORRECTION,
+        LINE_CONTROL_MAX_CORRECTION);
+
+    /*
      * Reduce speed progressively near the edge of the sensor bar. This is
      * continuous steering for the oval ends, not a special corner action.
      */
     running_base =
         g_baseSpeed -
         LINE_CONTROL_CURVE_SLOWDOWN *
-        LineControl_Abs(g_filteredPosition);
+        absolute_position;
     running_base = LineControl_Limit(
         running_base,
         LINE_CONTROL_MIN_BASE_SPEED,

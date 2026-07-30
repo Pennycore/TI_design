@@ -11,28 +11,40 @@
 
 /*
  * 小车驱动轮实际直径，单位mm。
- * 当前暂设为65 mm，之后可用尺子测量轮胎实际直径再修改。
+ * 用户实测为65 mm。
  */
 #define TRACK_WHEEL_DIAMETER_MM               (65.0f)
 
 /*
- * 编码器每个车轮转一圈的平均计数。
+ * 编码器每个车轮转一圈的实测计数。
  *
  * 实测结果：
  * 左轮10圈：14672，单圈1467.2
  * 右轮10圈：14397，单圈1439.7
- * 两轮平均：(1467.2 + 1439.7) / 2 = 1453.45
  */
-#define TRACK_ENCODER_COUNTS_PER_WHEEL_REV    (1453.45f)
+#define TRACK_LEFT_COUNTS_PER_WHEEL_REV       (1467.2f)
+#define TRACK_RIGHT_COUNTS_PER_WHEEL_REV      (1439.7f)
 
 /*
- * A点到各点及完整一圈的临时距离，单位mm。
- * 场地到达后必须通过实际运行重新标定。
+ * 赛道中心线由两段1.5 m直线和两个r=0.5 m半圆组成。
+ *
+ * A->B = 1500 mm
+ * A->C = 1500 + pi*500 = 3070.8 mm
+ * A->D = 3000 + pi*500 = 4570.8 mm
+ * 一圈  = 3000 + 2*pi*500 = 6141.6 mm
+ *
+ * 这些是图纸理论值；最终仍需通过实车修正轮胎打滑造成的误差。
  */
-#define TRACK_DISTANCE_TO_B_MM                (1535.0f)
-#define TRACK_DISTANCE_TO_C_MM                (3070.0f)
-#define TRACK_DISTANCE_TO_D_MM                (4605.0f)
-#define TRACK_LAP_DISTANCE_MM                 (6140.0f)
+#define TRACK_DISTANCE_TO_B_MM                (1500.0f)
+#define TRACK_DISTANCE_TO_C_MM                (3070.8f)
+#define TRACK_DISTANCE_TO_D_MM                (4570.8f)
+#define TRACK_LAP_DISTANCE_MM                 (6141.6f)
+
+/*
+ * 8路传感器探头中心线位于停车参考点前方168 mm。
+ * 终点横线第一次被检测到后，小车参考点还需前进该距离。
+ */
+#define TRACK_SENSOR_TO_REFERENCE_MM          (168.0f)
 
 /*
  * 距离终点还有多少毫米时开始减速。
@@ -106,6 +118,14 @@ uint8_t TrackPosition_HasReachedD(void);
 uint8_t TrackPosition_IsNearFinish(void);
 uint8_t TrackPosition_IsFinishDetectionEnabled(void);
 uint8_t TrackPosition_IsAtFinish(void);
+
+/*
+ * A点横线确认后的停车定位。
+ */
+float TrackPosition_GetFinishMarkerDistanceMm(void);
+float TrackPosition_GetStopTargetDistanceMm(void);
+float TrackPosition_GetRemainingToStop(void);
+uint8_t TrackPosition_IsStopTargetReached(void);
 
 /*
  * 获取当前点位。

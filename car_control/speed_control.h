@@ -69,6 +69,12 @@ void SpeedControl_Stop(void);
 void SpeedControl_Update(void);
 
 /*
+ * 获取自SpeedControl_Init()以来的10 ms定时节拍数。
+ * 主循环用它保证循迹、里程和比赛计时使用同一个硬件时基。
+ */
+uint32_t SpeedControl_GetTickCount(void);
+
+/*
  * 读取最近一次控制状态，便于 CCS Watch 或串口调试。
  */
 void SpeedControl_GetStatus(SpeedControl_Status_t *status);

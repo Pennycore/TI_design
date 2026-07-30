@@ -5,9 +5,13 @@
 
 #define TRACK_PI                       (3.14159265358979323846f)
 
-#define TRACK_MM_PER_COUNT             \
+#define TRACK_LEFT_MM_PER_COUNT        \
     ((TRACK_PI * TRACK_WHEEL_DIAMETER_MM) / \
-     TRACK_ENCODER_COUNTS_PER_WHEEL_REV)
+     TRACK_LEFT_COUNTS_PER_WHEEL_REV)
+
+#define TRACK_RIGHT_MM_PER_COUNT       \
+    ((TRACK_PI * TRACK_WHEEL_DIAMETER_MM) / \
+     TRACK_RIGHT_COUNTS_PER_WHEEL_REV)
 
 typedef struct
 {
@@ -17,6 +21,9 @@ typedef struct
     float left_distance_mm;
     float right_distance_mm;
     float average_distance_mm;
+    float finish_marker_start_distance_mm;
+    float finish_marker_distance_mm;
+    float stop_target_distance_mm;
 
     uint32_t finish_marker_time_ms;
 
@@ -91,6 +98,9 @@ void TrackPosition_Reset(void)
     g_track.left_distance_mm = 0.0f;
     g_track.right_distance_mm = 0.0f;
     g_track.average_distance_mm = 0.0f;
+    g_track.finish_marker_start_distance_mm = 0.0f;
+    g_track.finish_marker_distance_mm = 0.0f;
+    g_track.stop_target_distance_mm = 0.0f;
 
     g_track.finish_marker_time_ms = 0U;
 
@@ -125,10 +135,10 @@ void TrackPosition_Update(uint8_t marker_a, uint32_t delta_ms)
     g_track.previous_right_count = count.right;
 
     g_track.left_distance_mm +=
-        (float)left_delta_count * TRACK_MM_PER_COUNT;
+        (float)left_delta_count * TRACK_LEFT_MM_PER_COUNT;
 
     g_track.right_distance_mm +=
-        (float)right_delta_count * TRACK_MM_PER_COUNT;
+        (float)right_delta_count * TRACK_RIGHT_MM_PER_COUNT;
 
     /*
      * 左右轮平均距离作为小车沿赛道的累计里程。
@@ -155,6 +165,16 @@ void TrackPosition_Update(uint8_t marker_a, uint32_t delta_ms)
     {
         if (marker_a != 0U)
         {
+            if (g_track.finish_marker_time_ms == 0U)
+            {
+                /*
+                 * 保存第一次看到横线时的里程，而不是30 ms确认后的里程。
+                 * 168 mm停车距离从传感器首次到达A线开始计算。
+                 */
+                g_track.finish_marker_start_distance_mm =
+                    g_track.average_distance_mm;
+            }
+
             g_track.finish_marker_time_ms =
                 TrackPosition_AddTime(
                     g_track.finish_marker_time_ms,
@@ -164,11 +184,17 @@ void TrackPosition_Update(uint8_t marker_a, uint32_t delta_ms)
                 TRACK_FINISH_MARKER_CONFIRM_MS)
             {
                 g_track.finish_confirmed = 1U;
+                g_track.finish_marker_distance_mm =
+                    g_track.finish_marker_start_distance_mm;
+                g_track.stop_target_distance_mm =
+                    g_track.finish_marker_distance_mm +
+                    TRACK_SENSOR_TO_REFERENCE_MM;
             }
         }
         else
         {
             g_track.finish_marker_time_ms = 0U;
+            g_track.finish_marker_start_distance_mm = 0.0f;
         }
     }
     else
@@ -231,6 +257,40 @@ uint8_t TrackPosition_IsFinishDetectionEnabled(void)
 uint8_t TrackPosition_IsAtFinish(void)
 {
     return g_track.finish_confirmed;
+}
+
+float TrackPosition_GetFinishMarkerDistanceMm(void)
+{
+    return g_track.finish_marker_distance_mm;
+}
+
+float TrackPosition_GetStopTargetDistanceMm(void)
+{
+    return g_track.stop_target_distance_mm;
+}
+
+float TrackPosition_GetRemainingToStop(void)
+{
+    if (g_track.finish_confirmed == 0U)
+    {
+        return 0.0f;
+    }
+
+    return TrackPosition_RemainingDistance(
+        g_track.stop_target_distance_mm);
+}
+
+uint8_t TrackPosition_IsStopTargetReached(void)
+{
+    if (g_track.finish_confirmed == 0U)
+    {
+        return 0U;
+    }
+
+    return (g_track.average_distance_mm >=
+            g_track.stop_target_distance_mm)
+               ? 1U
+               : 0U;
 }
 
 TrackPoint TrackPosition_GetCurrentPoint(void)

@@ -3,18 +3,34 @@
 
 #include <stdint.h>
 
+#define GRAY_SENSOR_CHANNEL_COUNT    (8U)
+
 /*
- * 初始化感为八路灰度传感器的串行通信引脚。
- * CLK 为推挽输出并保持低电平，DAT 为上拉输入。
+ * Live calibration/debug values:
+ * - g_graySensorRaw[]: latest 12-bit ADC result for CH1...CH8.
+ * - g_graySensorWhite[]: measured white values at the final mounting height.
+ * - g_graySensorBlack[]: measured black values at the final mounting height.
+ *
+ * The calibration arrays must be replaced after measuring the actual sensor.
+ */
+extern volatile uint16_t
+    g_graySensorRaw[GRAY_SENSOR_CHANNEL_COUNT];
+extern volatile uint16_t
+    g_graySensorWhite[GRAY_SENSOR_CHANNEL_COUNT];
+extern volatile uint16_t
+    g_graySensorBlack[GRAY_SENSOR_CHANNEL_COUNT];
+extern volatile uint32_t g_graySensorAdcTimeoutCount;
+
+/*
+ * Initialize the 74HC4051 address lines and ADC state.
  */
 void GraySensor_Init(void);
 
 /*
- * 通过 CLK、DAT 读取八路数字量状态。
- *
- * bit0～bit7 依次对应第 1～8 路探头。
- * 校准后，接近白场输出 1，接近黑场输出 0。
- * CLK 空闲时保持高电平，每次下降沿后读取一路数据。
+ * Select CH1...CH8 through AD0/AD1/AD2, sample OUT with ADC0 channel 0, and
+ * apply per-channel hysteresis. bit0...bit7 correspond to CH1...CH8.
+ * A white surface is returned as 1 and a black surface as 0 so the existing
+ * black-line tracking layer remains compatible.
  */
 uint8_t GraySensor_Read(void);
 

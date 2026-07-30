@@ -20,6 +20,7 @@ static volatile int32_t g_leftActual;
 static volatile int32_t g_rightActual;
 static volatile float g_leftOutput;
 static volatile float g_rightOutput;
+static volatile uint32_t g_tickCount;
 
 static uint32_t SpeedControl_EnterCritical(void)
 {
@@ -161,6 +162,7 @@ void SpeedControl_Init(void)
     g_rightActual = 0;
     g_leftOutput  = 0.0f;
     g_rightOutput = 0.0f;
+    g_tickCount   = 0U;
 
     Motor_Stop();
 
@@ -252,6 +254,17 @@ void SpeedControl_Update(void)
     Motor_SetBoth(left_output, right_output);
 }
 
+uint32_t SpeedControl_GetTickCount(void)
+{
+    uint32_t tick_count;
+    uint32_t primask = SpeedControl_EnterCritical();
+
+    tick_count = g_tickCount;
+
+    SpeedControl_ExitCritical(primask);
+    return tick_count;
+}
+
 void SpeedControl_GetStatus(SpeedControl_Status_t *status)
 {
     uint32_t primask;
@@ -309,6 +322,7 @@ void TIMER_CONTROL_INST_IRQHandler(void)
     switch (DL_TimerA_getPendingInterrupt(TIMER_CONTROL_INST))
     {
         case DL_TIMER_IIDX_ZERO:
+            g_tickCount++;
             Encoder_Sample();
             SpeedControl_Update();
             break;

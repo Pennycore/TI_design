@@ -15,15 +15,21 @@
  */
 #define LINE_CONTROL_DEFAULT_BASE_SPEED      (3.0f)
 #define LINE_CONTROL_MIN_BASE_SPEED          (2.2f)
-#define LINE_CONTROL_MAX_WHEEL_SPEED         (6.0f)
-#define LINE_CONTROL_MAX_CORRECTION          (3.0f)
-#define LINE_CONTROL_CURVE_SLOWDOWN          (0.8f)
+#define LINE_CONTROL_MAX_WHEEL_SPEED         (22.0f)
+#define LINE_CONTROL_MAX_CORRECTION          (4.8f)
+#define LINE_CONTROL_CURVE_SLOWDOWN          (5.0f)
+
+/*
+ * 增加随横向偏差平方增长的弯道补偿：
+ * 小偏差时不过度摆动，黑线接近外侧探头时迅速增大内外轮速度差。
+ */
+#define LINE_CONTROL_CURVE_BOOST              (1.2f)
 
 /*
  * Position PID. Position is normalized to -1.0 (left) ... +1.0 (right).
  * Integral is intentionally disabled for line tracking.
  */
-#define LINE_CONTROL_KP                      (3.2f)
+#define LINE_CONTROL_KP                      (4.2f)
 #define LINE_CONTROL_KI                      (0.0f)
 #define LINE_CONTROL_KD                      (0.015f)
 
@@ -31,7 +37,7 @@
  * Low-pass filter coefficient for the newest position sample.
  * 1.0 disables filtering; a smaller value filters more strongly.
  */
-#define LINE_CONTROL_POSITION_FILTER_ALPHA   (0.70f)
+#define LINE_CONTROL_POSITION_FILTER_ALPHA   (0.85f)
 #define LINE_CONTROL_DIRECTION_THRESHOLD     (0.08f)
 
 /*
@@ -40,9 +46,9 @@
  * then stop. The inner wheel never reverses during ordinary tracking.
  */
 #define LINE_CONTROL_LOST_HOLD_CYCLES        (2U)
-#define LINE_CONTROL_SEARCH_MAX_CYCLES       (25U)
-#define LINE_CONTROL_SEARCH_OUTER_SPEED      (2.5f)
-#define LINE_CONTROL_SEARCH_INNER_SPEED      (0.6f)
+#define LINE_CONTROL_SEARCH_MAX_CYCLES       (60U)
+#define LINE_CONTROL_SEARCH_OUTER_SPEED      (4.0f)
+#define LINE_CONTROL_SEARCH_INNER_SPEED      (0.0f)
 
 /*
  * Sensor installation:
@@ -54,6 +60,14 @@
  */
 #define LINE_CONTROL_BIT0_IS_LEFT            (1U)
 #define LINE_CONTROL_TRACK_BLACK_LINE        (1U)
+
+/*
+ * A点启停线与环形线路垂直，横向长度为5 cm。按当前探头间距，
+ * 普通1.8 cm循迹线通常只会点亮1～2路，而A点会同时点亮至少3路。
+ * 另外要求4/5号中间探头至少有一路命中，抑制车身严重偏离时的误判。
+ */
+#define LINE_CONTROL_WIDE_MARKER_MIN_SENSORS (3U)
+#define LINE_CONTROL_WIDE_MARKER_CENTER_MASK (0x18U)
 
 /*
  * Bench test result:
@@ -68,6 +82,7 @@ typedef struct
     uint8_t line_bits;
     uint8_t active_count;
     uint8_t line_detected;
+    uint8_t wide_marker;
     uint8_t search_active;
     int8_t last_direction;
     uint32_t update_count;
