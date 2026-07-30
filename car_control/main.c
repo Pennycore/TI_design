@@ -6,17 +6,14 @@
 #include "line_control.h"
 #include "motor.h"
 #include "speed_control.h"
+#include "stepper_encoder.h"
+#include "stepper_motor.h"
 
 /*
-<<<<<<< HEAD
  * Temporary bench-test mode.
  *
  * IMPORTANT: lift both wheels off the ground before flashing this build.
  * Set to 0 after motor/encoder direction testing is complete.
-=======
- * GraySensor_Read()内部约等待1ms。
- * 主循环额外等待约9ms，使循迹周期接近10ms。
->>>>>>> c4c408127b779efd2b8ce6b4ef4b3f90f99e0207
  */
 #define MOTOR_ENCODER_TEST_ENABLE          (0U)
 #define SPEED_CONTROL_TEST_ENABLE          (0U)
@@ -235,6 +232,8 @@ int main(void)
      * 初始化SysConfig生成的所有外设。
      */
     SYSCFG_DL_init();
+    StepperMotor_Init();
+    StepperEncoder_Init();
 
 #if MOTOR_ENCODER_TEST_ENABLE
     /*
@@ -289,18 +288,16 @@ int main(void)
          * 读取灰度传感器并更新循迹控制。
          */
         LineControl_Update();
-<<<<<<< HEAD
         NormalMode_UpdateStatus();
+
+        /*
+         * Poll again after the line-control work so vision frames do not sit
+         * in the UART FIFO for the remainder of this control period.
+         */
+        K230Uart_Poll();
+        StepperEncoder_Update();
+
         delay_cycles(LINE_CONTROL_MAIN_DELAY_CYCLES);
     }
 #endif
 }
-=======
-
-        K230Uart_Poll();
-
-        delay_cycles(
-            LINE_CONTROL_MAIN_DELAY_CYCLES);
-    }
-}
->>>>>>> c4c408127b779efd2b8ce6b4ef4b3f90f99e0207
