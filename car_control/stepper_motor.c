@@ -5,7 +5,13 @@
 #include <stdint.h>
 
 #define STEPPER_TIMER_MAX_TICKS        (65536U)
-#define STEPPER_MAX_FREQUENCY_HZ       (20000U)
+/*
+ * Fragile linkage commissioning limits.
+ * Keep motion to one pulse per accepted command and disable continuous mode
+ * until the mechanism's safe total travel has been measured.
+ */
+#define STEPPER_MAX_FREQUENCY_HZ       (200U)
+#define STEPPER_MAX_STEPS_PER_COMMAND  (1U)
 
 static volatile bool g_stepperBusy;
 static volatile bool g_stepperContinuous;
@@ -99,7 +105,9 @@ static bool StepperMotor_Start(
 
     StepperMotor_StopTimer();
 
-    if ((!continuous && (steps == 0U)) ||
+    if (continuous ||
+        (steps == 0U) ||
+        (steps > STEPPER_MAX_STEPS_PER_COMMAND) ||
         !StepperMotor_ConfigureFrequency(frequency_hz))
     {
         StepperMotor_ExitCritical(primask);
@@ -164,7 +172,9 @@ bool StepperMotor_StartContinuous(
     uint32_t frequency_hz,
     StepperMotor_Direction_t direction)
 {
-    return StepperMotor_Start(0U, frequency_hz, direction, true);
+    (void)frequency_hz;
+    (void)direction;
+    return false;
 }
 
 void StepperMotor_Stop(void)

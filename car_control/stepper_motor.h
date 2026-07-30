@@ -21,6 +21,7 @@ bool StepperMotor_StartSteps(
     uint32_t steps,
     uint32_t frequency_hz,
     StepperMotor_Direction_t direction);
+/* Disabled while the fragile linkage is being commissioned. */
 bool StepperMotor_StartContinuous(
     uint32_t frequency_hz,
     StepperMotor_Direction_t direction);
