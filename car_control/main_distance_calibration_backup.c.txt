@@ -1,0 +1,118 @@
+#include "ti_msp_dl_config.h"
+
+#include "encoder.h"
+#include "motor.h"
+#include "speed_control.h"
+#include "track_position.h"
+
+/*
+ * 控制循环周期约10 ms。
+ */
+#define MAIN_CONTROL_PERIOD_MS           (10U)
+#define MAIN_LOOP_DELAY_CYCLES           \
+    (CPUCLK_FREQ / 100U)
+
+/*
+ * 上电后等待3秒。
+ */
+#define MAIN_STARTUP_DELAY_CYCLES        \
+    (CPUCLK_FREQ * 3U)
+
+/*
+ * 校准目标距离：程序累计到1000 mm后停车。
+ */
+#define MAIN_CALIBRATION_DISTANCE_MM     (1000.0f)
+
+/*
+ * 左右轮固定目标速度。
+ * 单位：编码器计数/10 ms。
+ */
+#define MAIN_LEFT_TARGET_SPEED           (3.5f)
+#define MAIN_RIGHT_TARGET_SPEED          (3.5f)
+
+/*
+ * CCS Expressions调试变量。
+ */
+volatile float g_calibration_distance_mm = 0.0f;
+volatile float g_calibration_left_mm = 0.0f;
+volatile float g_calibration_right_mm = 0.0f;
+
+volatile uint8_t g_calibration_running = 0U;
+volatile uint8_t g_calibration_finished = 0U;
+
+int main(void)
+{
+    SYSCFG_DL_init();
+
+    Motor_Init();
+    Encoder_Init();
+    SpeedControl_Init();
+    TrackPosition_Init();
+
+    /*
+     * 初始化完成后先保持停车。
+     */
+    SpeedControl_Stop();
+
+    /*
+     * 等待3秒，方便摆正小车并移开手。
+     */
+    delay_cycles(MAIN_STARTUP_DELAY_CYCLES);
+
+    /*
+     * 正式测试前清零编码器和里程。
+     */
+    Encoder_Reset();
+    TrackPosition_Reset();
+
+    /*
+     * 左右轮同速直行。
+     */
+    SpeedControl_SetTarget(
+        MAIN_LEFT_TARGET_SPEED,
+        MAIN_RIGHT_TARGET_SPEED);
+
+    g_calibration_running = 1U;
+
+    while (1)
+    {
+        /*
+         * 当前不识别A点横线，只累计编码器里程。
+         */
+        TrackPosition_Update(
+            0U,
+            MAIN_CONTROL_PERIOD_MS);
+
+        g_calibration_distance_mm =
+            TrackPosition_GetDistanceMm();
+
+        g_calibration_left_mm =
+            TrackPosition_GetLeftDistanceMm();
+
+        g_calibration_right_mm =
+            TrackPosition_GetRightDistanceMm();
+
+        /*
+         * 累计到程序设定的1000 mm后自动停车。
+         */
+        if ((g_calibration_finished == 0U) &&
+            (g_calibration_distance_mm >=
+             MAIN_CALIBRATION_DISTANCE_MM))
+        {
+            SpeedControl_Stop();
+
+            g_calibration_running = 0U;
+            g_calibration_finished = 1U;
+        }
+
+        /*
+         * 停车后持续保持停止状态。
+         */
+        if (g_calibration_finished != 0U)
+        {
+            SpeedControl_Stop();
+        }
+
+        delay_cycles(MAIN_LOOP_DELAY_CYCLES);
+    }
+}

@@ -1,0 +1,160 @@
+#include "ti_msp_dl_config.h"
+
+#include "encoder.h"
+#include "gray_sensor.h"
+#include "k230_uart.h"
+#include "line_control.h"
+#include "motor.h"
+#include "speed_control.h"
+#include "track_position.h"
+
+/*
+ * GraySensor_Read()大约需要1 ms，
+ * 主循环额外等待9 ms，使循迹周期接近10 ms。
+ */
+#define MAIN_CONTROL_PERIOD_MS               (10U)
+
+#define MAIN_LOOP_DELAY_CYCLES               \
+    ((CPUCLK_FREQ / 1000U) * 9U)
+
+/*
+ * 上电后等待3秒，再启动小车。
+ */
+#define MAIN_STARTUP_DELAY_CYCLES            \
+    (CPUCLK_FREQ * 3U)
+
+/*
+ * 当前还没有完成A点横线识别，
+ * 因此暂时固定传入0，不进行自动终点确认。
+ */
+#define MAIN_ENABLE_FINISH_MARKER_TEST       (0U)
+
+/*
+ * CCS Expressions调试变量。
+ */
+volatile float g_track_debug_distance_mm = 0.0f;
+volatile float g_track_debug_left_mm = 0.0f;
+volatile float g_track_debug_right_mm = 0.0f;
+
+volatile uint8_t g_track_debug_reached_b = 0U;
+volatile uint8_t g_track_debug_reached_c = 0U;
+volatile uint8_t g_track_debug_reached_d = 0U;
+
+volatile uint8_t g_track_debug_near_finish = 0U;
+volatile uint8_t g_track_debug_finish_enabled = 0U;
+volatile uint8_t g_track_debug_finished = 0U;
+
+volatile uint8_t g_track_debug_current_point = 0U;
+
+int main(void)
+{
+    uint8_t marker_a;
+
+    /*
+     * 初始化SysConfig生成的GPIO、定时器、PWM和串口。
+     */
+    SYSCFG_DL_init();
+
+    /*
+     * 电机和编码器必须在速度控制器之前初始化。
+     */
+    Motor_Init();
+    Encoder_Init();
+    GraySensor_Init();
+    K230Uart_Init();
+
+    SpeedControl_Init();
+    LineControl_Init();
+
+    /*
+     * TrackPosition依赖Encoder_GetCount()，
+     * 必须在Encoder_Init()之后初始化。
+     */
+    TrackPosition_Init();
+
+    /*
+     * 等待3秒，方便把小车放到赛道上并移开手。
+     */
+    delay_cycles(MAIN_STARTUP_DELAY_CYCLES);
+
+    /*
+     * 正式启动前清零编码器和里程。
+     */
+    Encoder_Reset();
+    TrackPosition_Reset();
+
+    while (1)
+    {
+        /*
+         * 处理K230发来的串口数据。
+         * 当前即使没有连接K230，也不影响小车循迹。
+         */
+        K230Uart_Poll();
+
+        /*
+         * 读取灰度传感器并更新循迹控制。
+         */
+        LineControl_Update();
+
+        /*
+         * 当前尚未完成A点横线识别。
+         * 暂时禁止自动确认终点，避免错误停车。
+         */
+#if MAIN_ENABLE_FINISH_MARKER_TEST
+        /*
+         * 后续完成A点横线识别后，
+         * 在这里替换为真正的判断结果。
+         */
+        marker_a = 0U;
+#else
+        marker_a = 0U;
+#endif
+
+        /*
+         * 更新编码器累计里程。
+         */
+        TrackPosition_Update(
+            marker_a,
+            MAIN_CONTROL_PERIOD_MS);
+
+        /*
+         * 更新CCS Expressions调试变量。
+         */
+        g_track_debug_distance_mm =
+            TrackPosition_GetDistanceMm();
+
+        g_track_debug_left_mm =
+            TrackPosition_GetLeftDistanceMm();
+
+        g_track_debug_right_mm =
+            TrackPosition_GetRightDistanceMm();
+
+        g_track_debug_reached_b =
+            TrackPosition_HasReachedB();
+
+        g_track_debug_reached_c =
+            TrackPosition_HasReachedC();
+
+        g_track_debug_reached_d =
+            TrackPosition_HasReachedD();
+
+        g_track_debug_near_finish =
+            TrackPosition_IsNearFinish();
+
+        g_track_debug_finish_enabled =
+            TrackPosition_IsFinishDetectionEnabled();
+
+        g_track_debug_finished =
+            TrackPosition_IsAtFinish();
+
+        g_track_debug_current_point =
+            (uint8_t)TrackPosition_GetCurrentPoint();
+
+        /*
+         * 再处理一次串口，降低数据积压概率。
+         */
+        K230Uart_Poll();
+
+        delay_cycles(MAIN_LOOP_DELAY_CYCLES);
+    }
+}
