@@ -14,6 +14,8 @@ TIMA0、TIMA1、UART2、车轮编码器和灰度传感器引脚。
 | MS42CG 编码器 | Z | PA25 | GPIO 输入，单圈零位脉冲 |
 | OLED | SDA | PA10 | I2C0 数据 |
 | OLED | SCL | PA11 | I2C0 时钟 |
+| K230 UART2 | GPIO5 / 排针 11 TX | PB18 | UART2 RX |
+| K230 UART2 | GPIO6 / 排针 13 RX | PB17 | UART2 TX |
 | 无 MCU 八路灰度 | AD0 | PB15 | 74HC4051 地址位 0 |
 | 无 MCU 八路灰度 | AD1 | PB2 | 74HC4051 地址位 1 |
 | 无 MCU 八路灰度 | AD2 | PB16 | 74HC4051 地址位 2 |
@@ -35,6 +37,13 @@ TIMA0、TIMA1、UART2、车轮编码器和灰度传感器引脚。
 - 灰度模块使用稳定 5 V 供电并与 LaunchPad 共地；EN 可悬空，ERR 暂不接。
 - PA27 模拟输入不得超过 3.3 V。首次连接前测量 OUT 最高电压，不确定时
   使用 10 kΩ/20 kΩ 分压后再接 PA27。
+- K230 与 MSPM0 使用 3.3 V TTL、115200、8N1：K230 GPIO5 TX 交叉接
+  MSPM0 PB18 RX；K230 GPIO6 RX 交叉接 MSPM0 PB17 TX；两块板必须共地。
+  不要把任一 UART 信号线接到 5 V。只做视觉单向测试时可先只接
+  K230 GPIO5 TX 到 MSPM0 PB18 RX，以及两板 GND。
+- 当前球杆连杆较脆弱。步进底层测试保护固定为每条命令最多 1 个脉冲、
+  最高 200 Hz，并禁用连续转动。没有测出机械安全总行程前，不得放宽该限制，
+  不得采用撞击机械端点的方式自动归零。
 
 ## 软件资源
 

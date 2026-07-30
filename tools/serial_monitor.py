@@ -8,6 +8,7 @@ SERIAL_SOF0 = 0xA5
 SERIAL_SOF1 = 0x5A
 MSG_VISION_BALL = 0x10
 MSG_VISION_MULTI_BALL = 0x11
+MSG_ROD_BALL_POSITION = 0x12
 MSG_MCU_TELEMETRY = 0x20
 
 
@@ -104,6 +105,16 @@ def describe_frame(frame):
             )
             offset += 7
         return f"MULTI  seq={seq:03d} count={count} " + " ".join(balls)
+
+    if msg_id == MSG_ROD_BALL_POSITION and len(payload) == 8:
+        position_mm, velocity_mm_s, raw_x, confidence, flags = struct.unpack(
+            "<hhHBB", payload
+        )
+        return (
+            f"ROD seq={seq:03d} pos={position_mm:4d}mm "
+            f"v={velocity_mm_s:5d}mm/s x={raw_x:3d} "
+            f"conf={confidence:3d} flags=0x{flags:02X}"
+        )
 
     if msg_id == MSG_MCU_TELEMETRY and len(payload) == 12:
         time_ms, line_pos, left_pwm, right_pwm, state, gray_bits = struct.unpack("<IhhhBB", payload)

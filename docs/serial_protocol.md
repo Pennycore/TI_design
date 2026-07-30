@@ -57,6 +57,25 @@ count, ball0, ball1, ...
 
 最大 payload 长度为 `1 + 4 * 7 = 29` 字节，小于 MCU 侧 32 字节负载限制。
 
+## 消息 `0x12`：ROD_BALL_POSITION
+
+K230 到 MSPM0。表示 H 题摇杆内钢球的一维状态，payload 长度 8 字节，小端序：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| position_mm | int16 | 相对中心 O 的位置，左负右正，单位 mm |
+| velocity_mm_s | int16 | 一维估计速度，单位 mm/s |
+| raw_x | uint16 | 标定前的画面 x 坐标，便于现场排查 |
+| confidence | uint8 | 当前帧检测置信度，0 到 100 |
+| flags | uint8 | bit0 detected，bit1 stable，bit2 on_target，bit3 predicted |
+
+`detected` 表示当前帧确实检测到钢球；`stable` 表示跟踪器已连续确认；
+`predicted` 表示当前帧漏检、位置来自短时匀速预测。MSPM0 的 `rod_ball_valid`
+仅在 `detected` 和 `stable` 同时置位时为真，控制代码不会把预测帧误当作新测量。
+
+当前三点标定为 `x=195 -> -50 mm`、`x=315 -> 0 mm`、
+`x=442 -> +50 mm`，左右两段分别做线性换算。
+
 ## 消息 `0x20`：MCU_TELEMETRY
 
 MSPM0 到 K230 或电脑调试，payload 长度 12 字节，小端序：
@@ -72,6 +91,6 @@ MSPM0 到 K230 或电脑调试，payload 长度 12 字节，小端序：
 
 ## 调试建议
 
-- 先只连 GND、TX、RX，用 `tools/serial_monitor.py` 看 K230 是否稳定发 `0x10` 或 `0x11` 帧。
+- 先只连 GND、TX、RX，用 `tools/serial_monitor.py` 看 K230 是否稳定发 `0x10`、`0x11` 或 `0x12` 帧。
 - 再接电机前，先让 MSPM0 只打印 `line_pos`，用手移动灰度传感器确认左右方向正确。
 - 最后接 TB6612FNG，先把基础 PWM 调到低速再试车。

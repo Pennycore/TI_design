@@ -1,6 +1,8 @@
 import gc
+import os
 import struct
 import sys
+import time
 
 import aidemo
 import image
@@ -14,13 +16,27 @@ from libs.PipeLine import PipeLine
 from libs.Utils import ScopedTiming, get_colors, letterbox_pad_param
 
 
-# The camera frame is letterboxed to 416x416 by AI2D before inference.
 RGB888P_SIZE = [640, 480]
-MODEL_INPUT_SIZE = [416, 416]
 DISPLAY_MODE = "virt"  # Use "hdmi" when an HDMI monitor is connected.
 DISPLAY_SIZE = [800, 480]
 
-MODEL_PATH = "/sdcard/examples/kmodel/steel_ball_yolo11n_hardcase_ft.kmodel"
+USE_FAST_320_MODEL = True
+STANDARD_MODEL_PATH = "/sdcard/examples/kmodel/steel_ball_yolo11n_hardcase_ft.kmodel"
+FAST_MODEL_PATH = "/sdcard/examples/kmodel/steel_ball_yolo11n_hardcase_ft_320.kmodel"
+
+if USE_FAST_320_MODEL:
+    try:
+        os.stat(FAST_MODEL_PATH)
+        MODEL_PATH = FAST_MODEL_PATH
+        MODEL_INPUT_SIZE = [320, 320]
+    except OSError:
+        print("Fast 320 model not found; falling back to 416 model")
+        MODEL_PATH = STANDARD_MODEL_PATH
+        MODEL_INPUT_SIZE = [416, 416]
+else:
+    MODEL_PATH = STANDARD_MODEL_PATH
+    MODEL_INPUT_SIZE = [416, 416]
+
 LABELS = ["steel_ball"]
 CONF_THRESHOLD = 0.22
 NMS_THRESHOLD = 0.55
@@ -30,12 +46,19 @@ MAX_MULTI_BALLS = 4
 CLOSE_BOX_HEIGHT = 120
 BALL_MIN_ASPECT_PERCENT = 55
 STABLE_FRAMES = 4
-TRACK_CONFIRM_FRAMES = 3
+TRACK_CONFIRM_FRAMES = 2
 TRACK_CONFIRM_CONFIDENCE = 0.30
-TRACK_MAX_MISSES = 2
-TRACK_MATCH_PIXELS = 70
-TRACK_SMOOTH_ALPHA = 0.45
+TRACK_MAX_MISSES = 1
+TRACK_MATCH_PIXELS = 90
+TRACK_SMOOTH_ALPHA = 0.78
+TRACK_VELOCITY_ALPHA = 0.60
+TRACK_GATE_SPEED_GAIN = 1.5
+TRACK_GATE_SPEED_LIMIT = 120
+TRACK_OUTPUT_PREDICTION_FRAMES = 0.50
 MAX_TRACKS = 8
+DRAW_TRACK_LABELS = False
+GC_INTERVAL_FRAMES = 30
+PERF_PRINT_INTERVAL = 30
 
 UART_BAUD = 115200
 UART_ID = 2
@@ -178,14 +201,15 @@ class SteelBallDetectionApp(AIBase):
                 color=color,
                 thickness=thickness,
             )
-            label = "T%d %.2f" % (ball["track_id"], ball["confidence"])
-            pipeline.osd_img.draw_string_advanced(
-                ball["x1"],
-                max(0, ball["y1"] - 32),
-                24,
-                label,
-                color=color,
-            )
+            if DRAW_TRACK_LABELS:
+                label = "T%d %.2f" % (ball["track_id"], ball["confidence"])
+                pipeline.osd_img.draw_string_advanced(
+                    ball["x1"],
+                    max(0, ball["y1"] - 32),
+                    24,
+                    label,
+                    color=color,
+                )
 
 
 class MultiBallTracker:
@@ -201,12 +225,30 @@ class MultiBallTracker:
         track["missed"] = 0
         track["observed"] = True
         track["confirmed"] = False
+        track["vx"] = 0.0
+        track["vy"] = 0.0
+        track["last_detection_cx"] = detection["cx"]
+        track["last_detection_cy"] = detection["cy"]
         self.next_track_id += 1
         if self.next_track_id > 255:
             self.next_track_id = 1
         return track
 
     def _update_track(self, track, detection):
+        velocity_alpha = TRACK_VELOCITY_ALPHA
+        measured_vx = detection["cx"] - track["last_detection_cx"]
+        measured_vy = detection["cy"] - track["last_detection_cy"]
+        track["vx"] = (
+            track["vx"] * (1.0 - velocity_alpha)
+            + measured_vx * velocity_alpha
+        )
+        track["vy"] = (
+            track["vy"] * (1.0 - velocity_alpha)
+            + measured_vy * velocity_alpha
+        )
+        track["last_detection_cx"] = detection["cx"]
+        track["last_detection_cy"] = detection["cy"]
+
         alpha = TRACK_SMOOTH_ALPHA
         for field in ("x1", "y1", "width", "height"):
             track[field] = int(
@@ -237,13 +279,20 @@ class MultiBallTracker:
             track = self.tracks[track_index]
             for detection_index in range(len(detections)):
                 detection = detections[detection_index]
-                dx = track["cx"] - detection["cx"]
-                dy = track["cy"] - detection["cy"]
+                predicted_cx = track["cx"] + track["vx"]
+                predicted_cy = track["cy"] + track["vy"]
+                dx = predicted_cx - detection["cx"]
+                dy = predicted_cy - detection["cy"]
                 gate = max(
                     TRACK_MATCH_PIXELS,
                     (track["width"] + track["height"]
                      + detection["width"] + detection["height"]) // 4,
                 )
+                speed_gate = int(
+                    (abs(track["vx"]) + abs(track["vy"]))
+                    * TRACK_GATE_SPEED_GAIN
+                )
+                gate += min(TRACK_GATE_SPEED_LIMIT, speed_gate)
                 distance_squared = dx * dx + dy * dy
                 if distance_squared <= gate * gate:
                     pairs.append((distance_squared, track_index, detection_index))
@@ -270,6 +319,14 @@ class MultiBallTracker:
                 track["streak"] = 0
                 track["observed"] = False
                 track["confidence"] *= 0.85
+                shift_x = int(round(track["vx"]))
+                shift_y = int(round(track["vy"]))
+                track["x1"] += shift_x
+                track["y1"] += shift_y
+                track["x2"] = track["x1"] + track["width"]
+                track["y2"] = track["y1"] + track["height"]
+                track["cx"] = track["x1"] + track["width"] // 2
+                track["cy"] = track["y1"] + track["height"] // 2
             if track["missed"] <= TRACK_MAX_MISSES:
                 retained_tracks.append(track)
         self.tracks = retained_tracks
@@ -284,7 +341,21 @@ class MultiBallTracker:
         confirmed = []
         for track in self.tracks:
             if track["confirmed"]:
-                confirmed.append(track)
+                reported = track.copy()
+                if track["observed"]:
+                    shift_x = int(round(
+                        track["vx"] * TRACK_OUTPUT_PREDICTION_FRAMES
+                    ))
+                    shift_y = int(round(
+                        track["vy"] * TRACK_OUTPUT_PREDICTION_FRAMES
+                    ))
+                    reported["x1"] += shift_x
+                    reported["y1"] += shift_y
+                    reported["x2"] += shift_x
+                    reported["y2"] += shift_y
+                    reported["cx"] += shift_x
+                    reported["cy"] += shift_y
+                confirmed.append(reported)
         confirmed.sort(key=lambda track: track["confidence"], reverse=True)
         return confirmed
 
@@ -432,6 +503,7 @@ def main():
     frame_index = 0
     tracker = MultiBallTracker()
     primary_track_id = None
+    clock = time.clock()
 
     try:
         uart = setup_uart()
@@ -458,6 +530,10 @@ def main():
 
         print("Steel-ball detector ready")
         print("Model:", MODEL_PATH)
+        print("Model input: %dx%d" % (
+            MODEL_INPUT_SIZE[0],
+            MODEL_INPUT_SIZE[1],
+        ))
         print("UART2: TX GPIO%d, RX GPIO%d, %d baud" % (
             K230_UART_TX_GPIO,
             K230_UART_RX_GPIO,
@@ -465,6 +541,7 @@ def main():
         ))
 
         while True:
+            clock.tick()
             frame = pipeline.get_frame()
             detections = detector.run(frame)
             raw_balls = detector.to_ball_list(detections)
@@ -496,7 +573,14 @@ def main():
 
             detector.draw_result(pipeline, balls, ball, stable)
             pipeline.show_image()
-            gc.collect()
+
+            if frame_index % PERF_PRINT_INTERVAL == 0:
+                print("PERF fps=%.1f tracks=%d" % (
+                    clock.fps(),
+                    len(balls),
+                ))
+            if frame_index % GC_INTERVAL_FRAMES == 0:
+                gc.collect()
     except KeyboardInterrupt:
         print("Stopped by user")
     except Exception as error:
