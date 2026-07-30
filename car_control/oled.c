@@ -1,32 +1,59 @@
 #include "oled.h"
 #include "ti_msp_dl_config.h"
 
+#include <stdbool.h>
+
 #define OLED_ADDRESS                (0x3CU)
 #define OLED_WIDTH                  (128U)
 #define OLED_PAGE_COUNT             (8U)
 #define OLED_CHARACTER_WIDTH        (6U)
+#define OLED_I2C_TIMEOUT_COUNT       (CPUCLK_FREQ / 100U)
+
+static uint8_t g_oledReady;
+static uint8_t g_oledWriteFailed;
 
 /*
  * 等待I2C控制器空闲。
+ *
+ * OLED未连接、地址错误或总线被拉低时必须超时返回，
+ * 否则原来的无限循环会让整车控制永久停止。
  */
-static void OLED_WaitIdle(void)
+static bool OLED_WaitIdle(void)
 {
-    while (!(DL_I2C_getControllerStatus(I2C_OLED_INST) &
-             DL_I2C_CONTROLLER_STATUS_IDLE)) {
+    uint32_t timeout = OLED_I2C_TIMEOUT_COUNT;
+
+    while (timeout > 0U) {
+        uint32_t status =
+            DL_I2C_getControllerStatus(I2C_OLED_INST);
+
+        if ((status & DL_I2C_CONTROLLER_STATUS_ERROR) != 0U) {
+            return false;
+        }
+
+        if ((status & DL_I2C_CONTROLLER_STATUS_IDLE) != 0U) {
+            return true;
+        }
+
+        timeout--;
     }
+
+    return false;
 }
 
 /*
  * 发送一个控制字节和一个数据字节。
  */
-static void OLED_Write(uint8_t control, uint8_t data)
+static bool OLED_Write(uint8_t control, uint8_t data)
 {
     uint8_t packet[2];
 
     packet[0] = control;
     packet[1] = data;
 
-    OLED_WaitIdle();
+    if (!OLED_WaitIdle()) {
+        DL_I2C_resetControllerTransfer(I2C_OLED_INST);
+        return false;
+    }
 
     DL_I2C_flushControllerTXFIFO(I2C_OLED_INST);
 
@@ -41,17 +68,30 @@ static void OLED_Write(uint8_t control, uint8_t data)
         DL_I2C_CONTROLLER_DIRECTION_TX,
         sizeof(packet));
 
-    OLED_WaitIdle();
+    if (!OLED_WaitIdle()) {
+        DL_I2C_resetControllerTransfer(I2C_OLED_INST);
+        return false;
+    }
+
+    return true;
 }
 
 static void OLED_WriteCommand(uint8_t command)
 {
-    OLED_Write(0x00U, command);
+    if ((g_oledWriteFailed == 0U) &&
+        !OLED_Write(0x00U, command)) {
+        g_oledWriteFailed = 1U;
+        g_oledReady = 0U;
+    }
 }
 
 static void OLED_WriteData(uint8_t data)
 {
-    OLED_Write(0x40U, data);
+    if ((g_oledWriteFailed == 0U) &&
+        !OLED_Write(0x40U, data)) {
+        g_oledWriteFailed = 1U;
+        g_oledReady = 0U;
+    }
 }
 
 /*
@@ -431,6 +471,10 @@ void OLED_ShowString(
     uint8_t page,
     const char *text)
 {
+    if ((g_oledReady == 0U) || (text == 0)) {
+        return;
+    }
+
     while ((*text != '\0') &&
            (column <= (OLED_WIDTH - OLED_CHARACTER_WIDTH))) {
         OLED_DrawCharacter(column, page, *text);
@@ -451,7 +495,7 @@ void OLED_ShowUnsigned(
     char text[11];
     uint8_t i;
 
-    if (width == 0U) {
+    if ((g_oledReady == 0U) || (width == 0U)) {
         return;
     }
 
@@ -479,7 +523,7 @@ void OLED_ShowSigned(
 {
     uint32_t magnitude;
 
-    if (width < 2U) {
+    if ((g_oledReady == 0U) || (width < 2U)) {
         return;
     }
 
@@ -504,7 +548,8 @@ void OLED_ClearLine(uint8_t page)
 {
     uint8_t column;
 
-    if (page >= OLED_PAGE_COUNT) {
+    if ((g_oledReady == 0U) ||
+        (page >= OLED_PAGE_COUNT)) {
         return;
     }
 
@@ -519,6 +564,10 @@ void OLED_Clear(void)
 {
     uint8_t page;
 
+    if (g_oledReady == 0U) {
+        return;
+    }
+
     for (page = 0U; page < OLED_PAGE_COUNT; page++) {
         OLED_ClearLine(page);
     }
@@ -526,6 +575,9 @@ void OLED_Clear(void)
 
 void OLED_Init(void)
 {
+    g_oledReady = 0U;
+    g_oledWriteFailed = 0U;
+
     /*
      * 上电后等待约100 ms。
      */
@@ -560,7 +612,21 @@ void OLED_Init(void)
     OLED_WriteCommand(0x14U);
     OLED_WriteCommand(0xAFU);
 
+    if (g_oledWriteFailed != 0U) {
+        return;
+    }
+
+    g_oledReady = 1U;
     OLED_Clear();
+
+    if (g_oledWriteFailed != 0U) {
+        g_oledReady = 0U;
+    }
+}
+
+uint8_t OLED_IsReady(void)
+{
+    return g_oledReady;
 }
 
 void OLED_ShowTest(void)

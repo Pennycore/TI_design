@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 void OLED_Init(void);
+uint8_t OLED_IsReady(void);
 void OLED_Clear(void);
 
 /*

@@ -18,6 +18,8 @@ const GPIO3    = GPIO.addInstance();
 const GPIO4    = GPIO.addInstance();
 const GPIO5    = GPIO.addInstance();
 const GPIO6    = GPIO.addInstance();
+const I2C      = scripting.addModule("/ti/driverlib/I2C", {}, false);
+const I2C1     = I2C.addInstance();
 const PWM      = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const PWM1     = PWM.addInstance();
 const PWM2     = PWM.addInstance();
@@ -115,6 +117,15 @@ GPIO6.associatedPins[0].$name            = "Z";
 GPIO6.associatedPins[0].direction        = "INPUT";
 GPIO6.associatedPins[0].internalResistor = "PULL_DOWN";
 GPIO6.associatedPins[0].assignedPin      = "25";
+
+I2C1.$name                   = "I2C_OLED";
+I2C1.basicEnableController   = true;
+I2C1.basicControllerBusSpeed = 400000;
+I2C1.sdaPinConfig.$name      = "OLED_SDA_PIN";
+I2C1.sclPinConfig.$name      = "OLED_SCL_PIN";
+I2C1.peripheral.$assign      = "I2C0";
+I2C1.peripheral.sdaPin.$assign = "PA10";
+I2C1.peripheral.sclPin.$assign = "PA11";
 
 PWM1.$name                              = "PWM_MOTOR";
 PWM1.timerStartTimer                    = true;
