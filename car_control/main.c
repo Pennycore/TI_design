@@ -38,7 +38,7 @@
  * 禁止在一次上电中自动测试两个方向。
  * 全部测完后必须把 STEPPER_SINGLE_STEP_TEST_ENABLE 改回 0U。
  */
-#define STEPPER_SINGLE_STEP_TEST_ENABLE               (1U)
+#define STEPPER_SINGLE_STEP_TEST_ENABLE               (0U)
 #define STEPPER_SINGLE_STEP_TEST_FREQ_HZ              (50U)
 #define STEPPER_SINGLE_STEP_TEST_DIRECTION            \
     (STEPPER_DIRECTION_POSITIVE)
@@ -95,6 +95,23 @@ volatile uint8_t g_stepperSingleTestSafeStopped;
 #define TASK_DEBUG_SIGN_THRESHOLD           (0.12f)
 #define TASK_DEBUG_CORRECTION_LIMIT         (4.75f)
 
+#define BALL_TASK3_TARGET_POSITIVE_MM       (50.0f)
+#define BALL_TASK3_TARGET_NEGATIVE_MM       (-50.0f)
+#define BALL_TASK3_TARGET_TOLERANCE_MM      (8.0f)
+#define BALL_TASK3_VELOCITY_TOLERANCE_MM_S  (60.0f)
+#define BALL_TASK3_STABLE_CYCLES            (25U)
+#define BALL_TASK3_VISION_TIMEOUT_TICKS     (50U)
+#define BALL_TASK3_MAX_TIME_MS              (5000U)
+#define BALL_TASK3_STEP_DECISION_TICKS      (2U)
+#define BALL_TASK3_CONTROL_DEADBAND         (5.0f)
+#define BALL_TASK3_VELOCITY_DAMPING         (0.12f)
+#define BALL_TASK3_MIN_STEP_FREQ_HZ         (60U)
+#define BALL_TASK3_MAX_STEP_FREQ_HZ         (200U)
+#define BALL_TASK3_STEP_LIMIT_POSITIVE      (80)
+#define BALL_TASK3_STEP_LIMIT_NEGATIVE      (-80)
+#define BALL_TASK3_BEAM_RESPONSE_INVERT     (0U)
+#define BALL_TASK3_STEPPER_DIR_INVERT       (0U)
+
 typedef enum
 {
     TASK_STATE_RUNNING = 0,
@@ -103,6 +120,17 @@ typedef enum
     TASK_STATE_FINISHED,
     TASK_STATE_ERROR
 } TaskState_t;
+
+typedef enum
+{
+    BALL_TASK3_STATE_WAIT_VISION = 0,
+    BALL_TASK3_STATE_TO_POSITIVE,
+    BALL_TASK3_STATE_TO_NEGATIVE,
+    BALL_TASK3_STATE_FINISHED,
+    BALL_TASK3_STATE_LOST_VISION,
+    BALL_TASK3_STATE_LIMIT_HIT,
+    BALL_TASK3_STATE_TIMEOUT
+} BallTask3State_t;
 
 typedef struct
 {
@@ -123,6 +151,28 @@ typedef struct
     int8_t last_correction_sign;
 } CurveDebug_t;
 
+typedef struct
+{
+    uint8_t state;
+    uint8_t rod_valid;
+    uint8_t rod_detected;
+    uint8_t rod_stable;
+    uint8_t rod_predicted;
+    uint8_t stable_count;
+    uint8_t lost_count;
+    uint8_t limit_hit;
+    uint32_t elapsed_time_ms;
+    uint32_t complete_time_ms;
+    uint32_t command_count;
+    int32_t actuator_steps;
+    int16_t position_mm;
+    int16_t velocity_mm_s;
+    float target_mm;
+    float error_mm;
+    float control_value;
+} BallTask3Live_t;
+
+
 /*
  * Live normal-mode diagnostics.  These symbols remain available in the CCS
  * Watch window even when execution is suspended outside line_control.c.
@@ -139,6 +189,8 @@ volatile uint8_t g_competitionTaskMode =
 volatile CurveDebug_t g_curve1Debug;
 volatile CurveDebug_t g_curve2Debug;
 volatile uint8_t g_curveDebugActiveSegment;
+volatile BallTask3Live_t g_ballTask3Live;
+static uint32_t g_ballTask3LastStepTick;
 
 static float Task_DebugAbs(float value)
 {
@@ -426,6 +478,342 @@ static void Task_ShowError(void)
 
     OLED_Clear();
     OLED_ShowString(32U, 3U, "ERROR");
+}
+
+static float BallTask3_Abs(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static float BallTask3_Limit(
+    float value,
+    float minimum,
+    float maximum)
+{
+    if (value > maximum)
+    {
+        return maximum;
+    }
+
+    if (value < minimum)
+    {
+        return minimum;
+    }
+
+    return value;
+}
+
+static float BallTask3_GetTarget(uint8_t state)
+{
+    if (state == BALL_TASK3_STATE_TO_POSITIVE)
+    {
+        return BALL_TASK3_TARGET_POSITIVE_MM;
+    }
+
+    return BALL_TASK3_TARGET_NEGATIVE_MM;
+}
+
+static StepperMotor_Direction_t BallTask3_ApplyStepperDir(
+    StepperMotor_Direction_t direction)
+{
+#if BALL_TASK3_STEPPER_DIR_INVERT
+    return (direction == STEPPER_DIRECTION_POSITIVE)
+        ? STEPPER_DIRECTION_NEGATIVE
+        : STEPPER_DIRECTION_POSITIVE;
+#else
+    return direction;
+#endif
+}
+
+static void BallTask3_ShowReady(void)
+{
+    if (OLED_IsReady() == 0U)
+    {
+        return;
+    }
+
+    OLED_Clear();
+    OLED_ShowString(16U, 1U, "TASK3 BALL");
+    OLED_ShowString(8U, 4U, "START IN 3S");
+}
+
+static void BallTask3_ShowRunning(void)
+{
+    if (OLED_IsReady() == 0U)
+    {
+        return;
+    }
+
+    OLED_Clear();
+    OLED_ShowString(8U, 0U, "TASK3 RUN");
+    OLED_ShowString(8U, 2U, "T:");
+    OLED_ShowSigned(26U, 2U, (int32_t)g_ballTask3Live.target_mm, 4U);
+    OLED_ShowString(58U, 2U, "MM");
+    OLED_ShowString(8U, 4U, "P:");
+    OLED_ShowSigned(26U, 4U, (int32_t)g_ballTask3Live.position_mm, 4U);
+    OLED_ShowString(58U, 4U, "MM");
+}
+
+static void BallTask3_ShowFinished(uint32_t elapsed_time_ms)
+{
+    uint32_t seconds;
+    uint32_t tenths;
+
+    if (OLED_IsReady() == 0U)
+    {
+        return;
+    }
+
+    seconds = elapsed_time_ms / 1000U;
+    tenths = (elapsed_time_ms % 1000U) / 100U;
+
+    OLED_Clear();
+    OLED_ShowString(12U, 0U, "TASK3 DONE");
+    OLED_ShowString(8U, 2U, "TIME:");
+    OLED_ShowUnsigned(44U, 2U, seconds, 1U);
+    OLED_ShowString(52U, 2U, ".");
+    OLED_ShowUnsigned(58U, 2U, tenths, 1U);
+    OLED_ShowString(64U, 2U, "S");
+    OLED_ShowString(8U, 5U, "HOLD -50MM");
+}
+
+static void BallTask3_SetFault(uint8_t state)
+{
+    StepperMotor_Stop();
+    g_ballTask3Live.state = state;
+    g_taskState = TASK_STATE_ERROR;
+    Task_ShowError();
+}
+
+static uint8_t BallTask3_IsStable(
+    float error_mm,
+    int16_t velocity_mm_s)
+{
+    return
+        (BallTask3_Abs(error_mm) <=
+            BALL_TASK3_TARGET_TOLERANCE_MM) &&
+        (BallTask3_Abs((float)velocity_mm_s) <=
+            BALL_TASK3_VELOCITY_TOLERANCE_MM_S);
+}
+
+static void BallTask3_UpdateDebug(uint32_t elapsed_time_ms)
+{
+    g_taskElapsedTimeMs = elapsed_time_ms;
+    g_taskDistanceMm = 0.0f;
+    g_taskRemainingToStopMm = 0.0f;
+    g_taskFinishMarkerConfirmed = 0U;
+}
+
+static void BallTask3_Reset(void)
+{
+    g_ballTask3Live.state = BALL_TASK3_STATE_WAIT_VISION;
+    g_ballTask3Live.rod_valid = 0U;
+    g_ballTask3Live.rod_detected = 0U;
+    g_ballTask3Live.rod_stable = 0U;
+    g_ballTask3Live.rod_predicted = 0U;
+    g_ballTask3Live.stable_count = 0U;
+    g_ballTask3Live.lost_count = 0U;
+    g_ballTask3Live.limit_hit = 0U;
+    g_ballTask3Live.elapsed_time_ms = 0U;
+    g_ballTask3Live.complete_time_ms = 0U;
+    g_ballTask3Live.command_count = 0U;
+    g_ballTask3Live.actuator_steps = 0;
+    g_ballTask3Live.position_mm = 0;
+    g_ballTask3Live.velocity_mm_s = 0;
+    g_ballTask3Live.target_mm = BALL_TASK3_TARGET_POSITIVE_MM;
+    g_ballTask3Live.error_mm = 0.0f;
+    g_ballTask3Live.control_value = 0.0f;
+    g_ballTask3LastStepTick = 0U;
+
+    StepperEncoder_Reset();
+    StepperMotor_Stop();
+    StepperMotor_SetEnabled(true);
+}
+
+static uint8_t BallTask3_IssueStep(
+    float control_value,
+    uint32_t current_tick)
+{
+    float abs_control;
+    float frequency_hz;
+    int32_t next_steps;
+    int8_t logical_direction;
+    StepperMotor_Direction_t stepper_direction;
+
+    abs_control = BallTask3_Abs(control_value);
+    if (abs_control < BALL_TASK3_CONTROL_DEADBAND)
+    {
+        return 0U;
+    }
+
+    if ((g_ballTask3LastStepTick != 0U) &&
+        ((current_tick - g_ballTask3LastStepTick) <
+            BALL_TASK3_STEP_DECISION_TICKS))
+    {
+        return 0U;
+    }
+
+    logical_direction = (control_value > 0.0f) ? 1 : -1;
+    next_steps =
+        g_ballTask3Live.actuator_steps + (int32_t)logical_direction;
+
+    if ((next_steps > BALL_TASK3_STEP_LIMIT_POSITIVE) ||
+        (next_steps < BALL_TASK3_STEP_LIMIT_NEGATIVE))
+    {
+        g_ballTask3Live.limit_hit = 1U;
+        BallTask3_SetFault(BALL_TASK3_STATE_LIMIT_HIT);
+        return 0U;
+    }
+
+    stepper_direction = (logical_direction > 0)
+        ? STEPPER_DIRECTION_POSITIVE
+        : STEPPER_DIRECTION_NEGATIVE;
+
+    frequency_hz =
+        (float)BALL_TASK3_MIN_STEP_FREQ_HZ + abs_control * 1.5f;
+    frequency_hz = BallTask3_Limit(
+        frequency_hz,
+        (float)BALL_TASK3_MIN_STEP_FREQ_HZ,
+        (float)BALL_TASK3_MAX_STEP_FREQ_HZ);
+
+    if (StepperMotor_StartSteps(
+            1U,
+            (uint32_t)frequency_hz,
+            BallTask3_ApplyStepperDir(stepper_direction)))
+    {
+        g_ballTask3Live.actuator_steps = next_steps;
+        g_ballTask3Live.command_count++;
+        g_ballTask3LastStepTick = current_tick;
+        return 1U;
+    }
+
+    return 0U;
+}
+
+static void BallTask3_Update(
+    uint32_t current_tick,
+    uint32_t elapsed_time_ms)
+{
+    const K230_UartStatus_t *k230_status;
+    uint8_t rod_valid;
+    uint8_t state;
+    float target_mm;
+    float error_mm;
+    float control_value;
+
+    k230_status = K230Uart_GetStatus();
+    state = g_ballTask3Live.state;
+
+    g_ballTask3Live.elapsed_time_ms = elapsed_time_ms;
+
+    if ((state == BALL_TASK3_STATE_LOST_VISION) ||
+        (state == BALL_TASK3_STATE_LIMIT_HIT) ||
+        (state == BALL_TASK3_STATE_TIMEOUT))
+    {
+        StepperMotor_Stop();
+        return;
+    }
+
+    g_ballTask3Live.rod_detected = k230_status->rod_ball_detected;
+    g_ballTask3Live.rod_stable = k230_status->rod_ball_stable;
+    g_ballTask3Live.rod_predicted = k230_status->rod_ball_predicted;
+
+    rod_valid =
+        (uint8_t)((k230_status->rod_ball_timeout == 0U) &&
+                  (k230_status->rod_ball_detected != 0U) &&
+                  (k230_status->rod_ball_stable != 0U) &&
+                  (k230_status->rod_ball_predicted == 0U));
+    g_ballTask3Live.rod_valid = rod_valid;
+
+    if (rod_valid == 0U)
+    {
+        StepperMotor_Stop();
+        if (g_ballTask3Live.lost_count < 255U)
+        {
+            g_ballTask3Live.lost_count++;
+        }
+
+        if (g_ballTask3Live.lost_count >=
+            BALL_TASK3_VISION_TIMEOUT_TICKS)
+        {
+            BallTask3_SetFault(BALL_TASK3_STATE_LOST_VISION);
+        }
+        return;
+    }
+
+    g_ballTask3Live.lost_count = 0U;
+    g_ballTask3Live.position_mm =
+        k230_status->rod_ball.position_mm;
+    g_ballTask3Live.velocity_mm_s =
+        k230_status->rod_ball.velocity_mm_s;
+
+    if (state == BALL_TASK3_STATE_WAIT_VISION)
+    {
+        g_ballTask3Live.state = BALL_TASK3_STATE_TO_POSITIVE;
+        state = BALL_TASK3_STATE_TO_POSITIVE;
+    }
+
+    if ((elapsed_time_ms >= BALL_TASK3_MAX_TIME_MS) &&
+        (state != BALL_TASK3_STATE_FINISHED))
+    {
+        BallTask3_SetFault(BALL_TASK3_STATE_TIMEOUT);
+        return;
+    }
+
+    target_mm = BallTask3_GetTarget(state);
+    error_mm = target_mm - (float)g_ballTask3Live.position_mm;
+    control_value =
+        error_mm -
+        BALL_TASK3_VELOCITY_DAMPING *
+            (float)g_ballTask3Live.velocity_mm_s;
+
+#if BALL_TASK3_BEAM_RESPONSE_INVERT
+    control_value = -control_value;
+#endif
+
+    g_ballTask3Live.target_mm = target_mm;
+    g_ballTask3Live.error_mm = error_mm;
+    g_ballTask3Live.control_value = control_value;
+
+    if (BallTask3_IsStable(
+            error_mm,
+            g_ballTask3Live.velocity_mm_s))
+    {
+        if (g_ballTask3Live.stable_count < 255U)
+        {
+            g_ballTask3Live.stable_count++;
+        }
+    }
+    else
+    {
+        g_ballTask3Live.stable_count = 0U;
+    }
+
+    if (state == BALL_TASK3_STATE_FINISHED)
+    {
+        (void)BallTask3_IssueStep(control_value, current_tick);
+        return;
+    }
+
+    if (g_ballTask3Live.stable_count >=
+        BALL_TASK3_STABLE_CYCLES)
+    {
+        g_ballTask3Live.stable_count = 0U;
+        if (state == BALL_TASK3_STATE_TO_POSITIVE)
+        {
+            g_ballTask3Live.state = BALL_TASK3_STATE_TO_NEGATIVE;
+        }
+        else
+        {
+            g_ballTask3Live.state = BALL_TASK3_STATE_FINISHED;
+            g_ballTask3Live.complete_time_ms = elapsed_time_ms;
+            g_taskState = TASK_STATE_FINISHED;
+            BallTask3_ShowFinished(elapsed_time_ms);
+        }
+        return;
+    }
+
+    (void)BallTask3_IssueStep(control_value, current_tick);
 }
 
 #if STEPPER_SINGLE_STEP_TEST_ENABLE && \
@@ -722,6 +1110,68 @@ int main(void)
         TrackPosition_Init();
         OLED_Init();
 
+#if (COMPETITION_TASK_MODE == 3U)
+        {
+            uint32_t last_oled_update_ms = 0U;
+
+            (void)stop_confirm_cycles;
+            (void)line_status;
+            (void)speed_status;
+
+            SpeedControl_Stop();
+            g_taskState = TASK_STATE_RUNNING;
+            BallTask3_Reset();
+            BallTask3_UpdateDebug(0U);
+            BallTask3_ShowReady();
+
+            delay_cycles(
+                LINE_CONTROL_STARTUP_DELAY_CYCLES);
+
+            SpeedControl_Stop();
+            Encoder_Reset();
+            StepperEncoder_Reset();
+            StepperMotor_SetEnabled(true);
+
+            start_tick = SpeedControl_GetTickCount();
+            last_control_tick = start_tick;
+            elapsed_time_ms = 0U;
+            BallTask3_ShowRunning();
+
+            while (1)
+            {
+                current_tick =
+                    SpeedControl_GetTickCount();
+                K230Uart_Poll(current_tick);
+                K230Uart_UpdateTimeout(current_tick);
+
+                if (current_tick == last_control_tick)
+                {
+                    continue;
+                }
+
+                last_control_tick = current_tick;
+                if ((g_taskState != TASK_STATE_FINISHED) &&
+                    (g_taskState != TASK_STATE_ERROR))
+                {
+                    elapsed_time_ms =
+                        (current_tick - start_tick) *
+                        TASK_CONTROL_PERIOD_MS;
+                }
+
+                SpeedControl_Stop();
+                StepperEncoder_Update();
+                BallTask3_Update(current_tick, elapsed_time_ms);
+                BallTask3_UpdateDebug(elapsed_time_ms);
+
+                if ((g_taskState == TASK_STATE_RUNNING) &&
+                    ((elapsed_time_ms - last_oled_update_ms) >= 100U))
+                {
+                    BallTask3_ShowRunning();
+                    last_oled_update_ms = elapsed_time_ms;
+                }
+            }
+        }
+#else
         g_taskState = TASK_STATE_RUNNING;
         Task_UpdateDebug(0U);
         Task_ShowReady();
@@ -926,6 +1376,7 @@ int main(void)
             K230Uart_UpdateTimeout(current_tick);
             StepperEncoder_Update();
         }
+#endif
     }
 
 #endif
