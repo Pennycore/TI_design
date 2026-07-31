@@ -28,14 +28,11 @@ CAL_X_POS_50_MM = 442
 TARGET_MM = 0
 TARGET_TOLERANCE_MM = 10
 
-# Dedicated K230 <-> MSPM0 link (one-way TX for now).
-# K230 UART3 TX = GPIO50 -> MSPM0 PB18 / UART2 RX.
-# K230 UART3 RX = GPIO51 (kept configured, not used in this one-way test).
-# Do not reuse these pins for the video link.
+# Dedicated K230 <-> MSPM0 link. Do not reuse these pins for the video link.
 UART_BAUD = 115200
-UART_ID = UART.UART3
-K230_UART_TX_GPIO = 50
-K230_UART_RX_GPIO = 51
+UART_ID = UART.UART2
+K230_UART_TX_GPIO = 5
+K230_UART_RX_GPIO = 6
 
 SERIAL_SOF0 = 0xA5
 SERIAL_SOF1 = 0x5A
@@ -544,15 +541,9 @@ class AlphaBetaTracker:
 
 def setup_uart():
     fpioa = FPIOA()
-    fpioa.set_function(K230_UART_TX_GPIO, FPIOA.UART3_TXD)
-    fpioa.set_function(K230_UART_RX_GPIO, FPIOA.UART3_RXD)
-    return UART(
-        UART_ID,
-        baudrate=UART_BAUD,
-        bits=UART.EIGHTBITS,
-        parity=UART.PARITY_NONE,
-        stop=UART.STOPBITS_ONE,
-    )
+    fpioa.set_function(K230_UART_TX_GPIO, FPIOA.UART2_TXD)
+    fpioa.set_function(K230_UART_RX_GPIO, FPIOA.UART2_RXD)
+    return UART(UART_ID, UART_BAUD)
 
 
 def setup_camera():
@@ -702,7 +693,7 @@ def main():
             CAL_X_ZERO_MM,
             CAL_X_POS_50_MM,
         ))
-        print("UART3: TX GPIO%d, RX GPIO%d, %d baud, msg=0x%02X" % (
+        print("UART2: TX GPIO%d, RX GPIO%d, %d baud, msg=0x%02X" % (
             K230_UART_TX_GPIO,
             K230_UART_RX_GPIO,
             UART_BAUD,

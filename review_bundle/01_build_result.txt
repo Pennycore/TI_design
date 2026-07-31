@@ -1,0 +1,46 @@
+CCS/SysConfig 构建结果
+======================
+
+未执行：当前 Agent 环境无法可靠调用 CCS/SysConfig 构建。
+
+说明：
+- 机器上存在 CCS 21（C:\ti\ccs2100，Theia 版，含 ccs-server-cli.bat），
+  SDK 为 C:\ti\mspm0_sdk_2_11_00_07，SysConfig 1.26.2/1.28.0 均在。
+- 本轮为只读审查任务，未运行 Clean/Build；运行 CCS 构建会重新生成
+  Debug 下的 SysConfig 产物与 makefile，并改变工作区构建状态，
+  因此仅做静态检查，未自动修复任何内容。
+
+静态检查结论（基于 car_control 源码、car_control.syscfg、
+car_control/Debug 旧构建产物、.cproject/.ccsproject）：
+
+1. 缺失头文件：当前源码 include 的头文件均存在（ti_msp_dl_config.h
+   由 SysConfig 生成，位于 Debug 目录，当前副本已过期，见第 5 条）。
+2. 声明与实现不一致：未发现。k230_uart / stepper_motor /
+   stepper_encoder / system_control / track_position / line_control /
+   speed_control / motor / encoder / gray_sensor / oled 的头文件声明
+   与 .c 实现均对应。
+3. 重复符号：car_control 编译范围内只有 main.c 一个 main()；
+   .txt 备份不参与编译；firmware/mspm0 的 main.c 属于另一独立目录，
+   未出现在 car_control/Debug/makefile 的 C_SRCS 中。
+4. 未定义 SysConfig 宏：
+   - gray_sensor.c 使用 GPIO_GRAY_CLK_PIN / GPIO_GRAY_DAT_PIN，
+     当前 car_control.syscfg 中灰度引脚命名为 CLK/DAT（PB15/PB2），
+     全新生成应产出这两个宏。
+   - 但 Debug/ti_msp_dl_config.h（2026-07-27 旧产物）中灰度组名为
+     GPIO_GRAY_AD0/AD1/AD2（含已删除的 PB16），不包含 CLK/DAT 宏；
+     若不做 Clean 直接增量编译，gray_sensor.c 会编译失败。
+     执行 Clean Project + Build Project 后该问题应消失。
+5. 未参与编译的新增文件（相对现有 Debug/makefile）：
+   oled.c、stepper_motor.c、stepper_encoder.c、system_control.c、
+   track_position.c 未列入 car_control/Debug/subdir_vars.mk 的 C_SRCS。
+   car_control.map 中 OLED_Init、StepperMotor_Init、StepperEncoder_Init、
+   TrackPosition_Update 均为 UNDEFED，且 Debug 下没有 .out/.hex，
+   说明该目录记录的是 2026-07-27 的一次失败链接结果。
+   而 main.c、line_control.c、speed_control.c、competition_config.h 等
+   在 2026-07-31 14:57 仍有修改，当前源码从未在该 Debug 目录中
+   构建成功过。
+6. 旧文件误参与编译：现有 C_SRCS 全部为当前在用文件，未发现误导入
+   firmware/mspm0 或 *.txt。
+7. 总体结论：当前树“是否能通过完整 Clean/Build”尚未被验证；
+   必须先由用户在 CCS 中 Clean Project + Build Project，并确认
+   0 error、生成 .out，之后才能烧录。

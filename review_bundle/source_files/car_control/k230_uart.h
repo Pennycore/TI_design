@@ -47,19 +47,10 @@ typedef struct {
     volatile uint8_t rod_ball_predicted;
     volatile uint8_t rod_ball_valid;
     volatile K230_RodBall_t rod_ball;
-    /* 任意合法完整帧最近接收节拍（调试用，10 ms 每 tick）。 */
-    volatile uint32_t last_rx_tick;
-    /* 合法 0x12 帧计数与最近接收节拍，仅由合法 0x12 帧刷新。 */
-    volatile uint32_t rod_ball_frame_count;
-    volatile uint32_t rod_ball_last_rx_tick;
-    /* 距最近合法 0x12 帧的节拍数，以及是否已超时。 */
-    volatile uint32_t rod_ball_age_ticks;
-    volatile uint8_t rod_ball_timeout;
 } K230_UartStatus_t;
 
 void K230Uart_Init(void);
-void K230Uart_Poll(uint32_t now_tick);
-void K230Uart_UpdateTimeout(uint32_t now_tick);
+void K230Uart_Poll(void);
 const K230_UartStatus_t *K230Uart_GetStatus(void);
 bool K230Uart_GetBall(K230_Ball_t *ball);
 bool K230Uart_GetRodBall(K230_RodBall_t *rod_ball);

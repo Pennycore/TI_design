@@ -1,0 +1,14 @@
+﻿$ git status --short
+?? AGENTS.md
+?? docs/agent_handoff.md
+?? docs/project_structure.md
+
+$ git branch --show-current
+main
+
+$ git log -1 --oneline
+463bed9 Merge branch 'main' of https://github.com/Pennycore/TI_design
+
+$ git rev-parse --show-toplevel
+C:/Users/28457/Desktop/TI_design
+

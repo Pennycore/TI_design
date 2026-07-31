@@ -11,12 +11,6 @@
 #define MSG_ROD_BALL_POSITION 0x12U
 #define SERIAL_MAX_PAYLOAD 32U
 
-/*
- * 钢球数据超时保护：以 main 的 10 ms 控制节拍计时。
- * 连续 200 ms 没有收到合法 0x12 帧即判为超时。
- */
-#define K230_ROD_BALL_TIMEOUT_TICKS (20U)
-
 typedef enum {
     PARSER_WAIT_SOF0 = 0,
     PARSER_WAIT_SOF1,
@@ -40,7 +34,6 @@ typedef struct {
 volatile K230_UartStatus_t g_k230_uart_status;
 
 static Parser_t g_parser;
-static volatile uint32_t g_uartPollTick;
 
 static uint8_t crc8_update(uint8_t crc, uint8_t data)
 {
@@ -124,23 +117,12 @@ static void handle_frame(void)
     g_k230_uart_status.frame_count++;
     g_k230_uart_status.last_msg_id = g_parser.msg_id;
     g_k230_uart_status.last_seq = g_parser.seq;
-    /*
-     * 任意 CRC 通过的合法完整帧都刷新通用最近接收时间（仅调试用）。
-     * CRC 错误帧和长度错误帧不会走到这里。
-     */
-    g_k230_uart_status.last_rx_tick = g_uartPollTick;
 
     if ((g_parser.msg_id == MSG_VISION_BALL) && (g_parser.len == 10U)) {
         decode_ball_payload(g_parser.payload);
     } else if ((g_parser.msg_id == MSG_ROD_BALL_POSITION) &&
                (g_parser.len == 8U)) {
         decode_rod_ball_payload(g_parser.payload);
-        /*
-         * 只有合法 0x12 帧（CRC 通过且长度正确）才刷新钢球数据超时；
-         * 其他消息 ID、长度不符的 0x12、CRC 错误帧都不刷新。
-         */
-        g_k230_uart_status.rod_ball_frame_count++;
-        g_k230_uart_status.rod_ball_last_rx_tick = g_uartPollTick;
     }
 }
 
@@ -207,65 +189,15 @@ static void parser_push(uint8_t byte)
 void K230Uart_Init(void)
 {
     parser_reset();
-
-    g_k230_uart_status.last_rx_tick = 0U;
-    g_k230_uart_status.rod_ball_frame_count = 0U;
-    g_k230_uart_status.rod_ball_last_rx_tick = 0U;
-    g_k230_uart_status.rod_ball_age_ticks = 0U;
-    /* 尚未收到任何合法 0x12 帧前保持超时状态。 */
-    g_k230_uart_status.rod_ball_timeout = 1U;
 }
 
-void K230Uart_Poll(uint32_t now_tick)
+void K230Uart_Poll(void)
 {
     uint8_t byte;
-
-    g_uartPollTick = now_tick;
 
     while (DL_UART_Main_receiveDataCheck(UART_K230_INST, &byte)) {
         g_k230_uart_status.byte_count++;
         parser_push(byte);
-    }
-}
-
-void K230Uart_UpdateTimeout(uint32_t now_tick)
-{
-    uint32_t elapsed_ticks;
-
-    /*
-     * 从未收到过合法 0x12 帧：保持超时，避免上电后短暂时间内
-     * 被误判为链路正常。
-     */
-    if (g_k230_uart_status.rod_ball_frame_count == 0U)
-    {
-        g_k230_uart_status.rod_ball_timeout = 1U;
-        g_k230_uart_status.rod_ball_age_ticks = now_tick;
-        return;
-    }
-
-    elapsed_ticks =
-        now_tick - g_k230_uart_status.rod_ball_last_rx_tick;
-    g_k230_uart_status.rod_ball_age_ticks = elapsed_ticks;
-
-    if (elapsed_ticks >= K230_ROD_BALL_TIMEOUT_TICKS)
-    {
-        if (g_k230_uart_status.rod_ball_timeout == 0U)
-        {
-            /*
-             * 超时瞬间清除所有有效性标志；旧 position_mm/raw_x
-             * 保留用于调试，但不再被当作有效数据。
-             */
-            g_k230_uart_status.rod_ball_timeout = 1U;
-            g_k230_uart_status.rod_ball_valid = 0U;
-            g_k230_uart_status.rod_ball_detected = 0U;
-            g_k230_uart_status.rod_ball_stable = 0U;
-            g_k230_uart_status.rod_ball_on_target = 0U;
-            g_k230_uart_status.rod_ball_predicted = 0U;
-        }
-    }
-    else
-    {
-        g_k230_uart_status.rod_ball_timeout = 0U;
     }
 }
 

@@ -27,34 +27,6 @@
     ((CPUCLK_FREQ / 1000U) * 10U)
 #define MOTOR_ENCODER_TEST_SAMPLES         (200U)
 
-/*
- * 临时：步进电机单脉冲方向测试模式。
- *
- * 本模式上电等待3秒后只执行一次 1 step 命令，然后永久停止；
- * 不进入循迹、不驱动车轮、不启用连续模式、不自动重复。
- *
- * 第一版只测试 STEPPER_DIRECTION_POSITIVE。用户测完方向后，
- * 把方向宏改为 STEPPER_DIRECTION_NEGATIVE 重新编译做反方向测试；
- * 禁止在一次上电中自动测试两个方向。
- * 全部测完后必须把 STEPPER_SINGLE_STEP_TEST_ENABLE 改回 0U。
- */
-#define STEPPER_SINGLE_STEP_TEST_ENABLE               (1U)
-#define STEPPER_SINGLE_STEP_TEST_FREQ_HZ              (50U)
-#define STEPPER_SINGLE_STEP_TEST_DIRECTION            \
-    (STEPPER_DIRECTION_POSITIVE)
-#define STEPPER_SINGLE_STEP_TEST_STARTUP_DELAY_CYCLES \
-    (CPUCLK_FREQ * 3U)
-
-/*
- * 单脉冲方向测试 CCS WATCH 变量（始终编译，便于 Watch 窗口观察）。
- */
-volatile uint8_t g_stepperSingleTestStarted;
-volatile uint8_t g_stepperSingleTestCommandAccepted;
-volatile uint8_t g_stepperSingleTestFinished;
-volatile uint8_t g_stepperSingleTestDirection;
-volatile uint8_t g_stepperSingleTestTimedOut;
-volatile uint8_t g_stepperSingleTestSafeStopped;
-
 /* The complete 8-channel ADC scan runs once per 10 ms control update. */
 #define LINE_CONTROL_MAIN_DELAY_CYCLES \
     ((CPUCLK_FREQ / 1000U) * 10U)
@@ -428,8 +400,7 @@ static void Task_ShowError(void)
     OLED_ShowString(32U, 3U, "ERROR");
 }
 
-#if STEPPER_SINGLE_STEP_TEST_ENABLE && \
-    (MOTOR_ENCODER_TEST_ENABLE || SPEED_CONTROL_TEST_ENABLE)
+#if MOTOR_ENCODER_TEST_ENABLE && SPEED_CONTROL_TEST_ENABLE
 #error "Enable only one diagnostic mode at a time"
 #endif
 
@@ -594,85 +565,7 @@ int main(void)
     StepperMotor_Init();
     StepperEncoder_Init();
 
-#if STEPPER_SINGLE_STEP_TEST_ENABLE
-    {
-        uint32_t test_wait_cycles;
-        uint8_t test_command_accepted;
-
-        g_stepperSingleTestStarted = 0U;
-        g_stepperSingleTestCommandAccepted = 0U;
-        g_stepperSingleTestFinished = 0U;
-        g_stepperSingleTestTimedOut = 0U;
-        g_stepperSingleTestSafeStopped = 0U;
-        g_stepperSingleTestDirection =
-            (uint8_t)STEPPER_SINGLE_STEP_TEST_DIRECTION;
-
-        /*
-         * 上电后等待3秒，期间不做任何动作。
-         */
-        delay_cycles(STEPPER_SINGLE_STEP_TEST_STARTUP_DELAY_CYCLES);
-
-        g_stepperSingleTestStarted = 1U;
-
-        /*
-         * 只发一次、1 step、50 Hz，方向固定为上面的方向宏。
-         * 驱动层本身仍受 200 Hz / 单次 1 步 / 禁连续保护约束。
-         */
-        test_command_accepted =
-            StepperMotor_StartSteps(
-                1U,
-                STEPPER_SINGLE_STEP_TEST_FREQ_HZ,
-                STEPPER_SINGLE_STEP_TEST_DIRECTION) ? 1U : 0U;
-
-        if (test_command_accepted != 0U)
-        {
-            g_stepperSingleTestCommandAccepted = 1U;
-
-            /*
-             * 等待唯一一个脉冲执行完成（50 Hz 单脉冲约 20 ms）。
-             * 有限等待保护：最多 500 ms，超时按失败处理。
-             */
-            test_wait_cycles = CPUCLK_FREQ / 2U;
-            while ((StepperMotor_IsBusy() != false) &&
-                   (test_wait_cycles != 0U))
-            {
-                test_wait_cycles--;
-            }
-
-            if (StepperMotor_IsBusy() != false)
-            {
-                /* 等待超时：命令未在限时内完成。 */
-                g_stepperSingleTestTimedOut = 1U;
-                g_stepperSingleTestFinished = 0U;
-            }
-            else
-            {
-                /* 正常完成：确认定时器已停、不再忙碌。 */
-                g_stepperSingleTestTimedOut = 0U;
-                g_stepperSingleTestFinished = 1U;
-            }
-        }
-        else
-        {
-            /* 命令未被接受：不执行任何脉冲，Finished 保持 0。 */
-            g_stepperSingleTestCommandAccepted = 0U;
-            g_stepperSingleTestFinished = 0U;
-        }
-
-        /*
-         * 唯一收尾路径：无论命令是否被接受、正常完成还是超时，
-         * 进入永久循环前都必须停表并释放步进励磁（EN 拉低）。
-         */
-        StepperMotor_Stop();
-        StepperMotor_SetEnabled(false);
-        g_stepperSingleTestSafeStopped = 1U;
-
-        while (1)
-        {
-            /* 执行一次后永久停止：不重复、不进入循迹、不驱动车轮。 */
-        }
-    }
-#elif MOTOR_ENCODER_TEST_ENABLE
+#if MOTOR_ENCODER_TEST_ENABLE
     /*
      * Do not initialize SpeedControl in this mode: its 10 ms interrupt would
      * overwrite the direct motor commands used by the bench test.
@@ -747,9 +640,10 @@ int main(void)
 
         while (1)
         {
+            K230Uart_Poll();
+
             current_tick = 
             SpeedControl_GetTickCount();
-            K230Uart_Poll(current_tick);
 
             /*
              * 只在新的10 ms硬件节拍到来时更新一次循迹。
@@ -915,8 +809,7 @@ int main(void)
             /*
              * 球杆编码器和K230接收保持更新，不影响本题循迹状态机。
              */
-            K230Uart_Poll(current_tick);
-            K230Uart_UpdateTimeout(current_tick);
+            K230Uart_Poll();
             StepperEncoder_Update();
         }
     }
