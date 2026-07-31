@@ -852,7 +852,14 @@ int main(void)
                     else if (remaining_mm <=
                              TASK_FINAL_NEAR_DISTANCE_MM)
                     {
-                        LineControl_SetBaseSpeed(
+                        /*
+                         * The A marker has already been confirmed here.
+                         * During the final few centimetres, keep both wheels
+                         * equal instead of letting an asymmetric marker/line
+                         * pattern make the car twitch just before stopping.
+                         */
+                        SpeedControl_SetTarget(
+                            TASK_FINAL_NEAR_SPEED,
                             TASK_FINAL_NEAR_SPEED);
                     }
                     else if (remaining_mm <=

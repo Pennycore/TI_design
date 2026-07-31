@@ -19,10 +19,10 @@
 
 #define COMPETITION_CRUISE_SPEED               (18.0f)
 #define COMPETITION_CURVE_SLOWDOWN             (5.0f)
-#define COMPETITION_SOFT_START_ENABLE           (0U)
-#define COMPETITION_BASE_ACCEL_STEP             (100.0f)
-#define COMPETITION_OUTPUT_RISE_STEP            (100.0f)
-#define COMPETITION_OUTPUT_FALL_STEP            (100.0f)
+#define COMPETITION_SOFT_START_ENABLE           (1U)
+#define COMPETITION_BASE_ACCEL_STEP             (0.35f)
+#define COMPETITION_OUTPUT_RISE_STEP            (3.0f)
+#define COMPETITION_OUTPUT_FALL_STEP            (3.0f)
 #define COMPETITION_SEGMENTED_SPEED_FF_ENABLE    (0U)
 
 #elif ((COMPETITION_TASK_MODE == 4U) || \
@@ -32,13 +32,13 @@
 /*
  * At 17 encoder counts/10 ms the theoretical lap time is about 25.8 s.
  * This leaves usable margin below 30 s while avoiding abrupt acceleration
- * of the ball. The base target reaches 17 in roughly 1.0 s.
+ * of the ball. The base target reaches 17 in roughly 1.5 s.
  */
 #define COMPETITION_CRUISE_SPEED               (17.0f)
 #define COMPETITION_CURVE_SLOWDOWN             (6.0f)
 #define COMPETITION_SOFT_START_ENABLE           (1U)
-#define COMPETITION_BASE_ACCEL_STEP             (0.15f)
-#define COMPETITION_OUTPUT_RISE_STEP            (1.0f)
+#define COMPETITION_BASE_ACCEL_STEP             (0.10f)
+#define COMPETITION_OUTPUT_RISE_STEP            (0.75f)
 #define COMPETITION_OUTPUT_FALL_STEP            (3.0f)
 #define COMPETITION_SEGMENTED_SPEED_FF_ENABLE    (1U)
 
